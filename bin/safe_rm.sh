@@ -1,9 +1,9 @@
 #!/bin/bash
 # Safe RM - Move files to centralized trash instead of deleting
-# Trash location: /scratch/trashcan/$USER/.trash
+# Trash location: /scratch/trashcan/$USER/trash
 
 TRASH_BASE="/scratch/trashcan"
-TRASH_DIR="$TRASH_BASE/$USER/.trash"
+TRASH_DIR="$TRASH_BASE/$USER/trash"
 SYMLINK_PATH="$HOME/.trash"
 
 # Ensure trash directory exists with correct permissions

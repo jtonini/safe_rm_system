@@ -156,11 +156,11 @@ for user_home in $user_list; do
         # Create as the user with correct permissions
         # SGID on parent ensures installer group is inherited
         sudo -u "$username" bash -c "
-            mkdir -p '$user_trash_dir/.trash'
+            mkdir -p '$user_trash_dir/trash'
             chmod 770 '$user_trash_dir'
-            chmod 770 '$user_trash_dir/.trash'
+            chmod 770 '$user_trash_dir/trash'
             chmod g+s '$user_trash_dir'
-            chmod g+s '$user_trash_dir/.trash'
+            chmod g+s '$user_trash_dir/trash'
         " 2>/dev/null
         
         if [ $? -eq 0 ]; then
@@ -172,14 +172,25 @@ for user_home in $user_list; do
         fi
         
         # Finally create symlink in user's home directory
-        if [ -L "$symlink_path" ]; then
+        # Check as user since installer can't access home directories
+        symlink_status=$(sudo -u "$username" bash -c "
+            if [ -L '$symlink_path' ]; then
+                echo 'exists'
+            elif [ -e '$symlink_path' ]; then
+                echo 'not_symlink'
+            else
+                echo 'none'
+            fi
+        " 2>/dev/null)
+        
+        if [ "$symlink_status" = "exists" ]; then
             echo "  --> Symlink already exists for $username"
-        elif [ -e "$symlink_path" ]; then
+        elif [ "$symlink_status" = "not_symlink" ]; then
             # This shouldn't happen since we handled it above, but just in case
             echo "  [WARN] .trash still exists as non-symlink after migration attempt"
         else
             # Create symlink as the user
-            sudo -u "$username" ln -s "$user_trash_dir/.trash" "$symlink_path" 2>/dev/null
+            sudo -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>/dev/null
             if [ $? -eq 0 ]; then
                 echo "  [OK] Created symlink for $username"
                 ((symlinks_created++))
@@ -207,8 +218,8 @@ echo "  Directories migrated:    $directories_migrated"
 echo "  Users skipped:           $users_skipped"
 echo ""
 echo "Structure:"
-echo "  Trash location:  $TRASH_BASE/<username>/.trash"
-echo "  User symlink:    /home/<username>/.trash -> $TRASH_BASE/<username>/.trash"
+echo "  Trash location:  $TRASH_BASE/<username>/trash"
+echo "  User symlink:    /home/<username>/.trash -> $TRASH_BASE/<username>/trash"
 echo "  Permissions:     User: rwx, Group (installer): rwx, Others: none"
 echo ""
 if [ "$directories_migrated" -gt 0 ]; then

@@ -34,7 +34,7 @@ Examples:
   trash_cleanup -a 30m --do-it                   # Clean all users, 30 min old
   trash_cleanup -u jtonini -a 1h --do-it         # Clean jtonini, 1 hour old
 
-Centralized trash location: $TRASH_BASE/<username>/.trash
+Centralized trash location: $TRASH_BASE/<username>/trash
 Log file: $LOG_FILE
 EOF
     exit 0
