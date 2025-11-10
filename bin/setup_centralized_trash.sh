@@ -111,6 +111,22 @@ for user_home in $user_list; do
         fi
         
         user_trash_dir="$TRASH_BASE/$username"
+        symlink_path="$user_home/.trash"
+        
+        # First, handle existing ~/.trash if it's not a symlink
+        if [ -e "$symlink_path" ] && [ ! -L "$symlink_path" ]; then
+            # ~/.trash exists but is not a symlink - rename it first
+            echo "  --> Found existing .trash directory for $username"
+            echo "      Renaming to .trash.old..."
+            sudo -u "$username" mv "$symlink_path" "${symlink_path}.old" 2>/dev/null
+            if [ $? -eq 0 ]; then
+                echo "  [OK] Renamed to .trash.old"
+                ((directories_migrated++))
+            else
+                echo "  [FAIL] Failed to rename .trash to .trash.old"
+                continue
+            fi
+        fi
         
         # Create user's trash directory if it doesn't exist
         if [ ! -d "$user_trash_dir" ]; then
@@ -130,6 +146,7 @@ for user_home in $user_list; do
                 ((users_created++))
             else
                 echo "  [FAIL] Failed to create directory for $username"
+                continue
             fi
         else
             echo "  --> $username already has trash directory"
@@ -145,27 +162,12 @@ for user_home in $user_list; do
             fi
         fi
         
-        # Create symlink in user's home directory
-        symlink_path="$user_home/.trash"
-        
+        # Now create symlink in user's home directory
         if [ -L "$symlink_path" ]; then
             echo "  --> Symlink already exists for $username"
         elif [ -e "$symlink_path" ]; then
-            # ~/.trash exists but is not a symlink - rename it and create symlink
-            echo "  --> Found existing .trash directory for $username"
-            echo "      Renaming to .trash.old and creating symlink..."
-            sudo -u "$username" bash -c "
-                mv '$symlink_path' '${symlink_path}.old' 2>/dev/null
-                ln -s '$user_trash_dir/.trash' '$symlink_path' 2>/dev/null
-            "
-            if [ $? -eq 0 ]; then
-                echo "  [OK] Migrated $username's .trash -> .trash.old"
-                echo "  [OK] Created symlink for $username"
-                ((symlinks_created++))
-                ((directories_migrated++))
-            else
-                echo "  [FAIL] Failed to migrate and create symlink for $username"
-            fi
+            # This shouldn't happen since we handled it above, but just in case
+            echo "  [WARN] .trash still exists as non-symlink after migration attempt"
         else
             # Create symlink as the user
             sudo -u "$username" ln -s "$user_trash_dir/.trash" "$symlink_path" 2>/dev/null
