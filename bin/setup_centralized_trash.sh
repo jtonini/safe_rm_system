@@ -3,6 +3,40 @@
 # Creates /scratch/trashcan structure and user symlinks
 
 TRASH_BASE="/scratch/trashcan"
+SINGLE_USER=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -u|--user)
+            SINGLE_USER="$2"
+            shift 2
+            ;;
+        -h|--help)
+            cat << EOF
+Setup Centralized Trash System - Help
+========================================
+
+Usage: setup_centralized_trash.sh [OPTIONS]
+
+Options:
+  -u, --user <username>     Set up trash for specific user only (for testing)
+  -h, --help                Show this help message
+
+Examples:
+  setup_centralized_trash.sh                  # Set up for ALL users
+  setup_centralized_trash.sh -u jtonini       # Set up for jtonini only (testing)
+
+EOF
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
+done
 
 echo "=========================================="
 echo "  Centralized Trash System Setup"
@@ -42,12 +76,30 @@ echo ""
 echo "Setting up user directories..."
 echo ""
 
+if [ -n "$SINGLE_USER" ]; then
+    echo "TEST MODE: Setting up for user '$SINGLE_USER' only"
+    echo ""
+fi
+
 users_created=0
 users_skipped=0
 symlinks_created=0
 
-# Process all users in /home
-for user_home in /home/*; do
+# Determine which users to process
+if [ -n "$SINGLE_USER" ]; then
+    # Single user mode - verify user exists
+    if [ ! -d "/home/$SINGLE_USER" ]; then
+        echo "Error: User '$SINGLE_USER' not found in /home/"
+        exit 1
+    fi
+    user_list="/home/$SINGLE_USER"
+else
+    # All users mode
+    user_list="/home/*"
+fi
+
+# Process users
+for user_home in $user_list; do
     if [ -d "$user_home" ]; then
         username=$(basename "$user_home")
         
@@ -116,6 +168,13 @@ echo ""
 echo "=========================================="
 echo "           SETUP SUMMARY"
 echo "=========================================="
+if [ -n "$SINGLE_USER" ]; then
+    echo "  MODE: TEST (single user)"
+    echo "  User: $SINGLE_USER"
+else
+    echo "  MODE: FULL DEPLOYMENT (all users)"
+fi
+echo ""
 echo "  New trash directories:   $users_created"
 echo "  New symlinks created:    $symlinks_created"
 echo "  Users skipped:           $users_skipped"
@@ -125,9 +184,27 @@ echo "  Trash location:  $TRASH_BASE/<username>/.trash"
 echo "  User symlink:    /home/<username>/.trash -> $TRASH_BASE/<username>/.trash"
 echo "  Permissions:     User: rwx, Group (installer): rwx, Others: none"
 echo ""
-echo "Next steps:"
-echo "  1. Install safe_rm and trash_cleanup scripts"
-echo "  2. Set up safe_rm alias in system-wide bashrc"
-echo "  3. Configure cron job for trash_cleanup"
+if [ -n "$SINGLE_USER" ]; then
+    echo "Test complete! Next steps:"
+    echo "  1. Test as user $SINGLE_USER:"
+    echo "     be $SINGLE_USER"
+    echo "     echo 'test' > /tmp/testfile && rm /tmp/testfile"
+    echo "     ls ~/.trash/"
+    echo ""
+    echo "  2. Test trash_cleanup:"
+    echo "     trash_cleanup -u $SINGLE_USER"
+    echo ""
+    echo "  3. If everything works, deploy to all users:"
+    echo "     ./bin/setup_centralized_trash.sh"
+else
+    echo "Next steps:"
+    echo "  1. Install safe_rm and trash_cleanup scripts (if not done):"
+    echo "     ln -sf ~/safe_rm_system/bin/safe_rm.sh /usr/local/sw/bin/safe_rm"
+    echo "     ln -sf ~/safe_rm_system/bin/trash_cleanup.sh /usr/local/sw/bin/trash_cleanup"
+    echo ""
+    echo "  2. Alias already set in /etc/bashrc"
+    echo ""
+    echo "  3. Configure cron job for trash_cleanup"
+fi
 echo ""
 echo "=========================================="
