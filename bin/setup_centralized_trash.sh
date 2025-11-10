@@ -84,6 +84,7 @@ fi
 users_created=0
 users_skipped=0
 symlinks_created=0
+directories_migrated=0
 
 # Determine which users to process
 if [ -n "$SINGLE_USER" ]; then
@@ -150,7 +151,21 @@ for user_home in $user_list; do
         if [ -L "$symlink_path" ]; then
             echo "  --> Symlink already exists for $username"
         elif [ -e "$symlink_path" ]; then
-            echo "  [WARN] Warning: $symlink_path exists but is not a symlink (skipping)"
+            # ~/.trash exists but is not a symlink - rename it and create symlink
+            echo "  --> Found existing .trash directory for $username"
+            echo "      Renaming to .trash.old and creating symlink..."
+            sudo -u "$username" bash -c "
+                mv '$symlink_path' '${symlink_path}.old' 2>/dev/null
+                ln -s '$user_trash_dir/.trash' '$symlink_path' 2>/dev/null
+            "
+            if [ $? -eq 0 ]; then
+                echo "  [OK] Migrated $username's .trash -> .trash.old"
+                echo "  [OK] Created symlink for $username"
+                ((symlinks_created++))
+                ((directories_migrated++))
+            else
+                echo "  [FAIL] Failed to migrate and create symlink for $username"
+            fi
         else
             # Create symlink as the user
             sudo -u "$username" ln -s "$user_trash_dir/.trash" "$symlink_path" 2>/dev/null
@@ -177,6 +192,7 @@ fi
 echo ""
 echo "  New trash directories:   $users_created"
 echo "  New symlinks created:    $symlinks_created"
+echo "  Directories migrated:    $directories_migrated"
 echo "  Users skipped:           $users_skipped"
 echo ""
 echo "Structure:"
@@ -184,6 +200,11 @@ echo "  Trash location:  $TRASH_BASE/<username>/.trash"
 echo "  User symlink:    /home/<username>/.trash -> $TRASH_BASE/<username>/.trash"
 echo "  Permissions:     User: rwx, Group (installer): rwx, Others: none"
 echo ""
+if [ "$directories_migrated" -gt 0 ]; then
+    echo "NOTE: $directories_migrated existing .trash directories were renamed to .trash.old"
+    echo "      These will be automatically cleaned by trash_cleanup after 30 days"
+    echo ""
+fi
 if [ -n "$SINGLE_USER" ]; then
     echo "Test complete! Next steps:"
     echo "  1. Test as user $SINGLE_USER:"
