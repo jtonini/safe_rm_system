@@ -117,7 +117,7 @@ for user_home in $user_list; do
         if [ -e "$symlink_path" ] && [ ! -L "$symlink_path" ]; then
             # ~/.trash exists but is not a symlink - rename it first
             echo "  --> Found existing .trash directory for $username"
-            echo "      Renaming to .trash.old..."
+            echo "      Renaming to .trash.old (preserves user data)..."
             sudo -u "$username" mv "$symlink_path" "${symlink_path}.old" 2>/dev/null
             if [ $? -eq 0 ]; then
                 echo "  [OK] Renamed to .trash.old"
@@ -128,41 +128,41 @@ for user_home in $user_list; do
             fi
         fi
         
-        # Create user's trash directory if it doesn't exist
-        if [ ! -d "$user_trash_dir" ]; then
-            echo "Creating trash directory for $username..."
-            
-            # Create as the user with correct permissions
-            # SGID on parent ensures installer group is inherited
-            sudo -u "$username" bash -c "
-                mkdir -p '$user_trash_dir/.trash'
-                chmod 770 '$user_trash_dir'
-                chmod 770 '$user_trash_dir/.trash'
-                chmod g+s '$user_trash_dir'
-                chmod g+s '$user_trash_dir/.trash'
-            " 2>/dev/null
-            
+        # Second, remove existing trashcan directory if it exists (from failed previous run)
+        if [ -d "$user_trash_dir" ]; then
+            echo "  --> Found existing trashcan directory for $username"
+            echo "      Removing for clean setup..."
+            rm -rf "$user_trash_dir" 2>/dev/null
             if [ $? -eq 0 ]; then
-                ((users_created++))
+                echo "  [OK] Removed old trashcan directory"
             else
-                echo "  [FAIL] Failed to create directory for $username"
+                echo "  [FAIL] Failed to remove old trashcan directory"
                 continue
-            fi
-        else
-            echo "  --> $username already has trash directory"
-            
-            # Verify .trash subdirectory exists
-            if [ ! -d "$user_trash_dir/.trash" ]; then
-                echo "    Creating .trash subdirectory..."
-                sudo -u "$username" bash -c "
-                    mkdir -p '$user_trash_dir/.trash'
-                    chmod 770 '$user_trash_dir/.trash'
-                    chmod g+s '$user_trash_dir/.trash'
-                " 2>/dev/null
             fi
         fi
         
-        # Now create symlink in user's home directory
+        # Now create fresh user's trash directory
+        echo "Creating trash directory for $username..."
+        
+        # Create as the user with correct permissions
+        # SGID on parent ensures installer group is inherited
+        sudo -u "$username" bash -c "
+            mkdir -p '$user_trash_dir/.trash'
+            chmod 770 '$user_trash_dir'
+            chmod 770 '$user_trash_dir/.trash'
+            chmod g+s '$user_trash_dir'
+            chmod g+s '$user_trash_dir/.trash'
+        " 2>/dev/null
+        
+        if [ $? -eq 0 ]; then
+            ((users_created++))
+            echo "  [OK] Created trash directory"
+        else
+            echo "  [FAIL] Failed to create directory for $username"
+            continue
+        fi
+        
+        # Finally create symlink in user's home directory
         if [ -L "$symlink_path" ]; then
             echo "  --> Symlink already exists for $username"
         elif [ -e "$symlink_path" ]; then
