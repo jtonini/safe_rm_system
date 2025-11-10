@@ -114,7 +114,16 @@ for user_home in $user_list; do
         symlink_path="$user_home/.trash"
         
         # First, handle existing ~/.trash if it's not a symlink
-        if [ -e "$symlink_path" ] && [ ! -L "$symlink_path" ]; then
+        # Must check as the user since installer can't access user home directories
+        trash_exists=$(sudo -u "$username" bash -c "
+            if [ -e '$symlink_path' ] && [ ! -L '$symlink_path' ]; then
+                echo 'yes'
+            else
+                echo 'no'
+            fi
+        " 2>/dev/null)
+        
+        if [ "$trash_exists" = "yes" ]; then
             # ~/.trash exists but is not a symlink - rename it first
             echo "  --> Found existing .trash directory for $username"
             echo "      Renaming to .trash.old (preserves user data)..."
