@@ -169,7 +169,7 @@ for user_dir in $user_list; do
         
         ((total_scanned++))
         
-        trash_dir="$user_dir/.trash"
+        trash_dir="$user_dir/trash"
         
         echo "Checking $username..." >&2
         
