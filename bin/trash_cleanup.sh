@@ -247,6 +247,12 @@ echo ""
 for user_home in /home/*; do
     if [ -d "$user_home" ]; then
         username=$(basename "$user_home")
+        
+        # Skip if processing single user and this isn't that user
+        if [ -n "$SINGLE_USER" ] && [ "$username" != "$SINGLE_USER" ]; then
+            continue
+        fi
+        
         old_trash_dir="$user_home/.trash.old"
 
         # Skip if .trash.old doesn't exist
@@ -320,6 +326,12 @@ if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
     for user_home in /home/*; do
         if [ -d "$user_home" ]; then
             username=$(basename "$user_home")
+            
+            # Skip if processing single user and this isn't that user
+            if [ -n "$SINGLE_USER" ] && [ "$username" != "$SINGLE_USER" ]; then
+                continue
+            fi
+            
             old_trash_dir="$user_home/.trash.old"
             
             if [ -d "$old_trash_dir" ]; then
