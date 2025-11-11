@@ -180,11 +180,13 @@ for user_dir in $user_list; do
 
         ((with_trash++))
 
-        # Get trash size in KB
-        trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
-        if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
-            trash_sizes[$username]=$trash_size_kb
-            total_size_kb=$((total_size_kb + trash_size_kb))
+        # Get trash size in KB (before cleanup for dry run)
+        if [ "$DO_IT" = false ]; then
+            trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
+            if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
+                trash_sizes[$username]=$trash_size_kb
+                total_size_kb=$((total_size_kb + trash_size_kb))
+            fi
         fi
 
         if [ "$DO_IT" = true ]; then
@@ -209,6 +211,33 @@ for user_dir in $user_list; do
     fi
 done
 
+# If we actually cleaned up, recalculate sizes to show remaining trash
+if [ "$DO_IT" = true ]; then
+    echo ""
+    echo "Recalculating remaining trash sizes..." >&2
+    
+    # Reset counters for recalculation
+    total_size_kb=0
+    unset trash_sizes
+    declare -A trash_sizes
+    
+    for user_dir in $user_list; do
+        if [ -d "$user_dir" ]; then
+            username=$(basename "$user_dir")
+            trash_dir="$user_dir/trash"
+            
+            if [ -d "$trash_dir" ]; then
+                # Recalculate size after cleanup
+                trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
+                if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
+                    trash_sizes[$username]=$trash_size_kb
+                    total_size_kb=$((total_size_kb + trash_size_kb))
+                fi
+            fi
+        fi
+    done
+fi
+
 echo ""
 
 # Also check for .trash.old directories in /home (from migration)
@@ -229,11 +258,13 @@ for user_home in /home/*; do
 
         echo "Checking $username's .trash.old..." >&2
 
-        # Get size
-        old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
-        if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
-            old_trash_sizes[$username]=$old_size_kb
-            old_total_size_kb=$((old_total_size_kb + old_size_kb))
+        # Get size (before cleanup for dry run)
+        if [ "$DO_IT" = false ]; then
+            old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+            if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
+                old_trash_sizes[$username]=$old_size_kb
+                old_total_size_kb=$((old_total_size_kb + old_size_kb))
+            fi
         fi
 
         if [ "$DO_IT" = true ]; then
@@ -269,6 +300,33 @@ for user_home in /home/*; do
     fi
 done
 
+# If we actually cleaned up .trash.old, recalculate sizes
+if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
+    echo ""
+    echo "Recalculating remaining .trash.old sizes..." >&2
+    
+    # Reset counters for recalculation
+    old_total_size_kb=0
+    unset old_trash_sizes
+    declare -A old_trash_sizes
+    
+    for user_home in /home/*; do
+        if [ -d "$user_home" ]; then
+            username=$(basename "$user_home")
+            old_trash_dir="$user_home/.trash.old"
+            
+            if [ -d "$old_trash_dir" ]; then
+                # Recalculate size after cleanup
+                old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+                if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
+                    old_trash_sizes[$username]=$old_size_kb
+                    old_total_size_kb=$((old_total_size_kb + old_size_kb))
+                fi
+            fi
+        fi
+    done
+fi
+
 echo ""
 
 # Convert total sizes to human readable
@@ -292,14 +350,20 @@ echo "  CENTRALIZED TRASH (/scratch/trashcan)"
 echo "=========================================="
 echo "  Total users scanned:     $total_scanned"
 echo "  Users with .trash:       $with_trash"
-echo "  Total trash size:        $total_size_human"
 if [ "$DO_IT" = true ]; then
+    echo "  Remaining trash size:    $total_size_human"
     echo "  Users cleaned:           $cleaned"
+else
+    echo "  Total trash size:        $total_size_human"
 fi
 echo ""
 
 if [ ${#top3[@]} -gt 0 ]; then
-    echo "  Top 3 users by trash size:"
+    if [ "$DO_IT" = true ]; then
+        echo "  Top 3 users by remaining trash:"
+    else
+        echo "  Top 3 users by trash size:"
+    fi
     for i in "${!top3[@]}"; do
         size_kb=$(echo "${top3[$i]}" | awk '{print $1}')
         username=$(echo "${top3[$i]}" | awk '{print $2}')
@@ -315,9 +379,11 @@ if [ "$with_old_trash" -gt 0 ]; then
     echo "  OLD TRASH DIRECTORIES (~/.trash.old)"
     echo "=========================================="
     echo "  Users with .trash.old:   $with_old_trash"
-    echo "  Total old trash size:    $old_total_size_human"
     if [ "$DO_IT" = true ]; then
+        echo "  Remaining old trash:     $old_total_size_human"
         echo "  Old trash cleaned:       $old_cleaned"
+    else
+        echo "  Total old trash size:    $old_total_size_human"
     fi
     echo ""
 
@@ -327,7 +393,11 @@ if [ "$with_old_trash" -gt 0 ]; then
     done | sort -rn | head -3)
 
     if [ ${#old_top3[@]} -gt 0 ]; then
-        echo "  Top 3 users by old trash size:"
+        if [ "$DO_IT" = true ]; then
+            echo "  Top 3 users by remaining old trash:"
+        else
+            echo "  Top 3 users by old trash size:"
+        fi
         for i in "${!old_top3[@]}"; do
             size_kb=$(echo "${old_top3[$i]}" | awk '{print $1}')
             username=$(echo "${old_top3[$i]}" | awk '{print $2}')
@@ -341,7 +411,11 @@ fi
 echo "=========================================="
 echo "  COMBINED TOTAL"
 echo "=========================================="
-echo "  All trash locations:     $combined_size_human"
+if [ "$DO_IT" = true ]; then
+    echo "  Remaining trash:         $combined_size_human"
+else
+    echo "  All trash locations:     $combined_size_human"
+fi
 
 echo ""
 echo "=========================================="
@@ -353,8 +427,8 @@ fi
 
 # Log summary
 if [ "$DO_IT" = true ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | age: $AGE_DISPLAY | cleaned $cleaned out of $total_scanned users | total size: $total_size_human" >> "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | age: $AGE_DISPLAY | cleaned $cleaned out of $total_scanned users | remaining size: $total_size_human" >> "$LOG_FILE"
     if [ "$with_old_trash" -gt 0 ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | .trash.old | cleaned $old_cleaned users | old trash size: $old_total_size_human" >> "$LOG_FILE"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | .trash.old | cleaned $old_cleaned users | remaining old trash: $old_total_size_human" >> "$LOG_FILE"
     fi
 fi
