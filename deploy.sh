@@ -65,8 +65,8 @@ echo "Step 2: Installing scripts to $BIN_DIR..."
 # Check if installer can write to /usr/local/sw/bin
 if [ -w "$BIN_DIR" ]; then
     # Create symlinks directly
-    ln -sf "$REPO_DIR/bin/safe_rm" "$BIN_DIR/safe_rm"
-    ln -sf "$REPO_DIR/bin/trash_cleanup" "$BIN_DIR/trash_cleanup"
+    ln -sf "$REPO_DIR/bin/safe_rm.sh" "$BIN_DIR/safe_rm"
+    ln -sf "$REPO_DIR/bin/trash_cleanup.sh" "$BIN_DIR/trash_cleanup"
     echo "  [OK] Created symlink: $BIN_DIR/safe_rm"
     echo "  [OK] Created symlink: $BIN_DIR/trash_cleanup"
 else
@@ -74,8 +74,8 @@ else
     echo "  [WARN] Cannot write to $BIN_DIR directly"
     echo ""
     echo "  Run these commands to create symlinks:"
-    echo "    ln -sf $REPO_DIR/bin/safe_rm $BIN_DIR/safe_rm"
-    echo "    ln -sf $REPO_DIR/bin/trash_cleanup $BIN_DIR/trash_cleanup"
+    echo "    ln -sf $REPO_DIR/bin/safe_rm.sh $BIN_DIR/safe_rm"
+    echo "    ln -sf $REPO_DIR/bin/trash_cleanup.sh $BIN_DIR/trash_cleanup"
     echo ""
     read -p "  Press Enter to continue..." 
 fi
