@@ -128,6 +128,7 @@ for item in "${files[@]}"; do
     
     # Create directory structure and move
     mkdir -p "$(dirname "$trash_path")" 2>/dev/null
+    chgrp -R installer "$(dirname "$trash_path")" 2>/dev/null
     
     if mv "$item" "$trash_path" 2>/dev/null; then
         if [ "$force" = false ]; then
