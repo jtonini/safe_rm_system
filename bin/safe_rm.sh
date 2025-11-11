@@ -29,7 +29,7 @@ elif [ ! -L "$SYMLINK_PATH" ]; then
 fi
 
 # Parse arguments to separate flags from files
-interactive=false
+interactive=true  # DEFAULT: prompt for confirmation
 force=false
 recursive=false
 files=()
@@ -41,6 +41,7 @@ for arg in "$@"; do
             ;;
         -f|--force)
             force=true
+            interactive=false  # -f disables prompts
             ;;
         -r|-R|--recursive)
             recursive=true
@@ -48,11 +49,12 @@ for arg in "$@"; do
         -rf|-fr|-Rf|-fR)
             recursive=true
             force=true
+            interactive=false  # -rf disables prompts
             ;;
         -rfi|-rif|-fri|-fir|-irf|-ifr)
             recursive=true
             force=true
-            interactive=true
+            interactive=true  # Explicitly keep interactive
             ;;
         -*)
             # Ignore other flags but notify user
