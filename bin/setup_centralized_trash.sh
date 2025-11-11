@@ -137,38 +137,40 @@ for user_home in $user_list; do
             fi
         fi
         
-        # Second, remove existing trashcan directory if it exists (from failed previous run)
+        # Second, check if trashcan directory already exists
         if [ -d "$user_trash_dir" ]; then
-            echo "  --> Found existing trashcan directory for $username"
-            echo "      Removing for clean setup..."
-            rm -rf "$user_trash_dir" 2>/dev/null
+            echo "  --> $username already has trashcan directory"
+            
+            # Verify trash subdirectory exists
+            if [ ! -d "$user_trash_dir/trash" ]; then
+                echo "    Creating trash subdirectory..."
+                sudo -u "$username" bash -c "
+                    mkdir -p '$user_trash_dir/trash'
+                    chmod 770 '$user_trash_dir/trash'
+                    chmod g+s '$user_trash_dir/trash'
+                " 2>/dev/null
+            fi
+        else
+            # Create fresh user's trash directory
+            echo "Creating trash directory for $username..."
+            
+            # Create as the user with correct permissions
+            # SGID on parent ensures installer group is inherited
+            sudo -u "$username" bash -c "
+                mkdir -p '$user_trash_dir/trash'
+                chmod 770 '$user_trash_dir'
+                chmod 770 '$user_trash_dir/trash'
+                chmod g+s '$user_trash_dir'
+                chmod g+s '$user_trash_dir/trash'
+            " 2>/dev/null
+            
             if [ $? -eq 0 ]; then
-                echo "  [OK] Removed old trashcan directory"
+                ((users_created++))
+                echo "  [OK] Created trash directory"
             else
-                echo "  [FAIL] Failed to remove old trashcan directory"
+                echo "  [FAIL] Failed to create directory for $username"
                 continue
             fi
-        fi
-        
-        # Now create fresh user's trash directory
-        echo "Creating trash directory for $username..."
-        
-        # Create as the user with correct permissions
-        # SGID on parent ensures installer group is inherited
-        sudo -u "$username" bash -c "
-            mkdir -p '$user_trash_dir/trash'
-            chmod 770 '$user_trash_dir'
-            chmod 770 '$user_trash_dir/trash'
-            chmod g+s '$user_trash_dir'
-            chmod g+s '$user_trash_dir/trash'
-        " 2>/dev/null
-        
-        if [ $? -eq 0 ]; then
-            ((users_created++))
-            echo "  [OK] Created trash directory"
-        else
-            echo "  [FAIL] Failed to create directory for $username"
-            continue
         fi
         
         # Finally create symlink in user's home directory
