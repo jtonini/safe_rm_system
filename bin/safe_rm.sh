@@ -131,7 +131,7 @@ for item in "${files[@]}"; do
     
     if mv "$item" "$trash_path" 2>/dev/null; then
         if [ "$force" = false ]; then
-            echo "Moved to trash: $trash_path"
+            echo "Moved to trash (deleted after 7 days): ~/.trash/$(basename $(dirname "$trash_path"))"
         fi
     else
         echo "rm: cannot remove '$item': Permission denied" >&2
