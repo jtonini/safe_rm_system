@@ -189,7 +189,7 @@ for user_dir in $user_list; do
         
         if [ "$DO_IT" = true ]; then
             # Actually delete old trash
-            deleted=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec rm -rf {} + 2>/dev/null | wc -l)
+            deleted=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
             
             if [ "$deleted" -gt 0 ]; then
                 ((cleaned++))
@@ -238,7 +238,7 @@ for user_home in /home/*; do
         
         if [ "$DO_IT" = true ]; then
             # Delete old trash directories with same age policy
-            deleted=$(find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec rm -rf {} + 2>/dev/null | wc -l)
+            deleted=$(find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
             
             if [ "$deleted" -gt 0 ]; then
                 ((old_cleaned++))
