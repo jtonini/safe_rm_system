@@ -277,6 +277,13 @@ for user_home in /home/*; do
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
             fi
 
+            # Also delete loose files (not in timestamped directories) older than threshold
+            deleted_files=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -f {} + 2>/dev/null | wc -l)
+            
+            if [ "$deleted_files" -gt 0 ]; then
+                echo "  [OK] Cleaned $deleted_files loose file(s) from .trash.old"
+                echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted_files loose files removed" >> "$LOG_FILE"
+            fi
             # If .trash.old is now empty AND older than 30 days, remove it
             if [ -z "$(ls -A "$old_trash_dir" 2>/dev/null)" ]; then
                 # Check if directory is older than 30 days
