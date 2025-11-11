@@ -1,6 +1,6 @@
 #!/bin/bash
 # Centralized trash cleanup for safe_rm system
-# Scans /scratch/trashcan/*/.trash for old directories
+# Scans /scratch/trashcan/*/trash for old directories
 
 TRASH_BASE="/scratch/trashcan"
 LOG_DIR="/usr/local/sw/logs"
@@ -161,36 +161,36 @@ echo ""
 for user_dir in $user_list; do
     if [ -d "$user_dir" ]; then
         username=$(basename "$user_dir")
-        
+
         # Skip if not a valid user directory
         if [ "$username" = "*" ]; then
             continue
         fi
-        
+
         ((total_scanned++))
-        
+
         trash_dir="$user_dir/trash"
-        
+
         echo "Checking $username..." >&2
-        
-        # Check if .trash exists
+
+        # Check if trash exists
         if [ ! -d "$trash_dir" ]; then
             continue
         fi
-        
+
         ((with_trash++))
-        
+
         # Get trash size in KB
         trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
         if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
             trash_sizes[$username]=$trash_size_kb
             total_size_kb=$((total_size_kb + trash_size_kb))
         fi
-        
+
         if [ "$DO_IT" = true ]; then
-            # Actually delete old trash
-            deleted=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
-            
+            # Actually delete old trash - run as the user to ensure proper permissions
+            deleted=$(sudo -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+
             if [ "$deleted" -gt 0 ]; then
                 ((cleaned++))
                 echo "  [OK] Cleaned $username's trash ($deleted directories)"
@@ -199,7 +199,7 @@ for user_dir in $user_list; do
         else
             # Dry run - show what would be deleted
             old_dirs=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
-            
+
             if [ -n "$old_dirs" ]; then
                 dir_count=$(echo "$old_dirs" | wc -l)
                 size=$(du -sh "$trash_dir" 2>/dev/null | cut -f1)
@@ -219,39 +219,39 @@ for user_home in /home/*; do
     if [ -d "$user_home" ]; then
         username=$(basename "$user_home")
         old_trash_dir="$user_home/.trash.old"
-        
+
         # Skip if .trash.old doesn't exist
         if [ ! -d "$old_trash_dir" ]; then
             continue
         fi
-        
+
         ((with_old_trash++))
-        
+
         echo "Checking $username's .trash.old..." >&2
-        
+
         # Get size
         old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
         if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
             old_trash_sizes[$username]=$old_size_kb
             old_total_size_kb=$((old_total_size_kb + old_size_kb))
         fi
-        
+
         if [ "$DO_IT" = true ]; then
-            # Delete old trash directories with same age policy
-            deleted=$(find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
-            
+            # Delete old trash directories with same age policy - run as user
+            deleted=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+
             if [ "$deleted" -gt 0 ]; then
                 ((old_cleaned++))
                 echo "  [OK] Cleaned $username's .trash.old ($deleted directories)"
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
             fi
-            
+
             # If .trash.old is now empty AND older than 30 days, remove it
             if [ -z "$(ls -A "$old_trash_dir" 2>/dev/null)" ]; then
                 # Check if directory is older than 30 days
                 dir_age_days=$(( ( $(date +%s) - $(stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
                 if [ "$dir_age_days" -gt 30 ]; then
-                    rmdir "$old_trash_dir" 2>/dev/null
+                    sudo -u "$username" rmdir "$old_trash_dir" 2>/dev/null
                     echo "  [OK] Removed empty .trash.old directory (created $dir_age_days days ago)"
                     echo "$(date '+%Y-%m-%d %H:%M:%S') | REMOVED | $username/.trash.old | empty directory older than 30 days" >> "$LOG_FILE"
                 fi
@@ -259,7 +259,7 @@ for user_home in /home/*; do
         else
             # Dry run
             old_dirs=$(find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
-            
+
             if [ -n "$old_dirs" ]; then
                 dir_count=$(echo "$old_dirs" | wc -l)
                 size=$(du -sh "$old_trash_dir" 2>/dev/null | cut -f1)
@@ -320,12 +320,12 @@ if [ "$with_old_trash" -gt 0 ]; then
         echo "  Old trash cleaned:       $old_cleaned"
     fi
     echo ""
-    
+
     # Get top 3 old trash users
     mapfile -t old_top3 < <(for user in "${!old_trash_sizes[@]}"; do
         echo "${old_trash_sizes[$user]} $user"
     done | sort -rn | head -3)
-    
+
     if [ ${#old_top3[@]} -gt 0 ]; then
         echo "  Top 3 users by old trash size:"
         for i in "${!old_top3[@]}"; do
