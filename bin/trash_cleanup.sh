@@ -191,7 +191,7 @@ for user_dir in $user_list; do
 
         if [ "$DO_IT" = true ]; then
             # Actually delete old trash - run as the user to ensure proper permissions
-            deleted=$(sudo -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+            deleted=$(sudo -n -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
 
             if [ "$deleted" -gt 0 ]; then
                 ((cleaned++))
@@ -255,8 +255,9 @@ for user_home in /home/*; do
         
         old_trash_dir="$user_home/.trash.old"
 
-        # Skip if .trash.old doesn't exist (check as user due to permissions)
-        if ! sudo -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
+        # Skip if .trash.old doesn't exist or we can't access it (check as user due to permissions)
+        # Use -n flag for non-interactive sudo (fails immediately if password needed)
+        if ! sudo -n -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
             continue
         fi
 
@@ -266,7 +267,7 @@ for user_home in /home/*; do
 
         # Get size (before cleanup for dry run) - use sudo -u for permissions
         if [ "$DO_IT" = false ]; then
-            old_size_kb=$(sudo -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+            old_size_kb=$(sudo -n -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
             if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
                 old_trash_sizes[$username]=$old_size_kb
                 old_total_size_kb=$((old_total_size_kb + old_size_kb))
@@ -275,7 +276,7 @@ for user_home in /home/*; do
 
         if [ "$DO_IT" = true ]; then
             # Delete old trash directories with same age policy - run as user
-            deleted=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+            deleted=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
 
             if [ "$deleted" -gt 0 ]; then
                 ((old_cleaned++))
@@ -284,7 +285,7 @@ for user_home in /home/*; do
             fi
 
             # Also delete loose files (not in timestamped directories) older than threshold
-            deleted_files=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -f {} + 2>/dev/null | wc -l)
+            deleted_files=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -f {} + 2>/dev/null | wc -l)
             
             if [ "$deleted_files" -gt 0 ]; then
                 echo "  [OK] Cleaned $deleted_files loose file(s) from .trash.old"
@@ -292,23 +293,23 @@ for user_home in /home/*; do
             fi
             
             # If .trash.old is now empty AND older than 30 days, remove it
-            if [ -z "$(sudo -u "$username" ls -A "$old_trash_dir" 2>/dev/null)" ]; then
+            if [ -z "$(sudo -n -u "$username" ls -A "$old_trash_dir" 2>/dev/null)" ]; then
                 # Check if directory is older than 30 days
-                dir_age_days=$(( ( $(date +%s) - $(sudo -u "$username" stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
+                dir_age_days=$(( ( $(date +%s) - $(sudo -n -u "$username" stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
                 if [ "$dir_age_days" -gt 30 ]; then
-                    sudo -u "$username" rmdir "$old_trash_dir" 2>/dev/null
+                    sudo -n -u "$username" rmdir "$old_trash_dir" 2>/dev/null
                     echo "  [OK] Removed empty .trash.old directory (created $dir_age_days days ago)"
                     echo "$(date '+%Y-%m-%d %H:%M:%S') | REMOVED | $username/.trash.old | empty directory older than 30 days" >> "$LOG_FILE"
                 fi
             fi
         else
             # Dry run - use sudo -u for permissions
-            old_dirs=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
-            old_files=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+            old_dirs=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+            old_files=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
 
             if [ -n "$old_dirs" ]; then
                 dir_count=$(echo "$old_dirs" | wc -l)
-                size=$(sudo -u "$username" du -sh "$old_trash_dir" 2>/dev/null | cut -f1)
+                size=$(sudo -n -u "$username" du -sh "$old_trash_dir" 2>/dev/null | cut -f1)
                 echo "  --> Found: $dir_count old directories in .trash.old, size: $size"
             fi
             
@@ -342,9 +343,9 @@ if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
             old_trash_dir="$user_home/.trash.old"
             
             # Check if .trash.old exists (as user)
-            if sudo -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
+            if sudo -n -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
                 # Recalculate size after cleanup (as user)
-                old_size_kb=$(sudo -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+                old_size_kb=$(sudo -n -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
                 if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
                     old_trash_sizes[$username]=$old_size_kb
                     old_total_size_kb=$((old_total_size_kb + old_size_kb))
