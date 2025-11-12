@@ -1,30 +1,54 @@
 #!/bin/bash
-# Safe RM - Move files to centralized trash instead of deleting
-# Trash location: /scratch/trashcan/$USER/trash
+# Safe RM - Move files to trash instead of deleting
+# Supports both centralized (/scratch/trashcan) and local (~/.trash) modes
 
-TRASH_BASE="/scratch/trashcan"
-TRASH_DIR="$TRASH_BASE/$USER/trash"
-SYMLINK_PATH="$HOME/.trash"
-
-# Ensure trash directory exists with correct permissions
-if [ ! -d "$TRASH_DIR" ]; then
-    mkdir -p "$TRASH_DIR" 2>/dev/null
-    chmod 770 "$TRASH_DIR" 2>/dev/null
-    chmod g+s "$TRASH_DIR" 2>/dev/null
+# Detect trash mode: centralized or local
+if [ -d "/scratch" ]; then
+    # /scratch exists - must use centralized mode
+    if [ ! -d "/scratch/trashcan" ]; then
+        echo "Error: /scratch exists but /scratch/trashcan is not configured" >&2
+        echo "Contact your system administrator to set up centralized trash" >&2
+        exit 1
+    fi
+    # Centralized mode
+    MODE="centralized"
+    TRASH_BASE="/scratch/trashcan"
+    TRASH_DIR="$TRASH_BASE/$USER/trash"
+    SYMLINK_PATH="$HOME/.trash"
+else
+    # No /scratch - use local mode
+    MODE="local"
+    TRASH_DIR="$HOME/.trash"
+    SYMLINK_PATH=""  # Not used in local mode
 fi
 
-# Create symlink in user's home if it doesn't exist
-if [ ! -e "$SYMLINK_PATH" ]; then
-    # Nothing exists - create symlink
-    ln -s "$TRASH_DIR" "$SYMLINK_PATH" 2>/dev/null
-elif [ ! -L "$SYMLINK_PATH" ]; then
-    # ~/.trash exists but is not a symlink (edge case)
-    # Rename it to preserve data, then create proper symlink
-    if [ -d "$SYMLINK_PATH" ] || [ -f "$SYMLINK_PATH" ]; then
-        mv "$SYMLINK_PATH" "${SYMLINK_PATH}.old" 2>/dev/null
+# Setup trash directory based on mode
+if [ "$MODE" = "centralized" ]; then
+    # Centralized mode: ensure trash directory exists with correct permissions
+    if [ ! -d "$TRASH_DIR" ]; then
+        mkdir -p "$TRASH_DIR" 2>/dev/null
+        chmod 770 "$TRASH_DIR" 2>/dev/null
+        chmod g+s "$TRASH_DIR" 2>/dev/null
+    fi
+
+    # Create symlink in user's home if it doesn't exist
+    if [ ! -e "$SYMLINK_PATH" ]; then
+        # Nothing exists - create symlink
         ln -s "$TRASH_DIR" "$SYMLINK_PATH" 2>/dev/null
-        echo "Notice: Old ~/.trash moved to ~/.trash.old" >&2
-        echo "        New trash location: $TRASH_DIR" >&2
+    elif [ ! -L "$SYMLINK_PATH" ]; then
+        # ~/.trash exists but is not a symlink (edge case)
+        # Rename it to preserve data, then create proper symlink
+        if [ -d "$SYMLINK_PATH" ] || [ -f "$SYMLINK_PATH" ]; then
+            mv "$SYMLINK_PATH" "${SYMLINK_PATH}.old" 2>/dev/null
+            ln -s "$TRASH_DIR" "$SYMLINK_PATH" 2>/dev/null
+            echo "Notice: Old ~/.trash moved to ~/.trash.old" >&2
+            echo "        New trash location: $TRASH_DIR" >&2
+        fi
+    fi
+else
+    # Local mode: simple directory creation
+    if [ ! -d "$TRASH_DIR" ]; then
+        mkdir -p "$TRASH_DIR" 2>/dev/null
     fi
 fi
 
@@ -70,6 +94,11 @@ done
 if [ ${#files[@]} -eq 0 ]; then
     echo "Usage: rm [OPTION]... FILE..." >&2
     echo "Move files to trash: $TRASH_DIR" >&2
+    if [ "$MODE" = "centralized" ]; then
+        echo "(Centralized trash mode)" >&2
+    else
+        echo "(Local trash mode)" >&2
+    fi
     echo "" >&2
     echo "Options:" >&2
     echo "  -f, --force           ignore nonexistent files, never prompt" >&2
@@ -88,16 +117,16 @@ for item in "${files[@]}"; do
         fi
         continue
     fi
-    
+
     # Check if it's a directory and -r wasn't specified
     if [ -d "$item" ] && [ ! -L "$item" ] && [ "$recursive" = false ]; then
         echo "rm: cannot remove '$item': Is a directory" >&2
         continue
     fi
-    
+
     # Get absolute path
     abs_path=$(realpath "$item" 2>/dev/null || readlink -f "$item" 2>/dev/null || echo "$item")
-    
+
     # Interactive prompt if requested and not forced
     if [ "$interactive" = true ] && [ "$force" = false ]; then
         read -p "rm: remove '$item'? " -n 1 -r
@@ -106,10 +135,10 @@ for item in "${files[@]}"; do
             continue
         fi
     fi
-    
+
     # Create timestamp-based directory
     timestamp=$(date +%Y%m%d_%H%M%S_%N)
-    
+
     # Determine the relative path for organizing in trash
     # Remove leading slashes and make it a valid path
     if [[ "$abs_path" == /home/$USER/* ]]; then
@@ -123,16 +152,24 @@ for item in "${files[@]}"; do
     else
         rel_path=${abs_path#/}
     fi
-    
+
     trash_path="$TRASH_DIR/$timestamp/$rel_path"
-    
+
     # Create directory structure and move
     mkdir -p "$(dirname "$trash_path")" 2>/dev/null
-    chgrp -R installer "$(dirname "$trash_path")" 2>/dev/null
     
+    # In centralized mode, try to set installer group (may fail on NFS)
+    if [ "$MODE" = "centralized" ]; then
+        chgrp -R installer "$(dirname "$trash_path")" 2>/dev/null
+    fi
+
     if mv "$item" "$trash_path" 2>/dev/null; then
         if [ "$force" = false ]; then
-            echo "Moved to trash (deleted after 7 days): ~/.trash/$(basename $(dirname "$trash_path"))"
+            if [ "$MODE" = "centralized" ]; then
+                echo "Moved to trash (deleted after 7 days): ~/.trash/$(basename $(dirname "$trash_path"))"
+            else
+                echo "Moved to trash: ~/.trash/$(basename $(dirname "$trash_path"))"
+            fi
         fi
     else
         echo "rm: cannot remove '$item': Permission denied" >&2

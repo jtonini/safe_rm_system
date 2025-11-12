@@ -1,8 +1,29 @@
 #!/bin/bash
 # Setup script for centralized trash system
-# Creates /scratch/trashcan structure and user symlinks
+# Only applicable when /scratch partition exists
 
+# Check if /scratch partition exists
+if [ ! -d "/scratch" ]; then
+    echo "=========================================="
+    echo "  Local Trash Mode Detected"
+    echo "=========================================="
+    echo ""
+    echo "This server does not have a /scratch partition."
+    echo "The safe_rm system will automatically use LOCAL MODE:"
+    echo "  - Trash location: ~/.trash (directory in user's home)"
+    echo "  - No setup required"
+    echo "  - Each user's trash is created automatically on first use"
+    echo ""
+    echo "Just install the scripts and you're done:"
+    echo "  ln -sf ~/safe_rm_system/bin/safe_rm.sh /usr/local/sw/bin/safe_rm"
+    echo "  ln -sf ~/safe_rm_system/bin/trash_cleanup.sh /usr/local/sw/bin/trash_cleanup"
+    echo ""
+    exit 0
+fi
+
+# /scratch exists - ensure /scratch/trashcan is configured
 TRASH_BASE="/scratch/trashcan"
+
 SINGLE_USER=""
 
 # Parse arguments
@@ -50,25 +71,48 @@ if [ "$CURRENT_USER" != "installer" ]; then
     exit 1
 fi
 
-# Create base trashcan directory
+# Create or verify base trashcan directory
 if [ ! -d "$TRASH_BASE" ]; then
     echo "Creating $TRASH_BASE..."
-    mkdir -p "$TRASH_BASE"
-    chmod 775 "$TRASH_BASE"
-    chmod g+s "$TRASH_BASE"
+    
+    # Try to create it
+    if mkdir -p "$TRASH_BASE" 2>/dev/null; then
+        # Successfully created - set permissions
+        chmod 2777 "$TRASH_BASE" 2>/dev/null
+        chgrp installer "$TRASH_BASE" 2>/dev/null
+        echo "  [OK] Created $TRASH_BASE with permissions 2777"
+    else
+        # Failed to create - need admin help
+        echo ""
+        echo "=========================================="
+        echo "  ERROR: Cannot Create Centralized Trash"
+        echo "=========================================="
+        echo ""
+        echo "Installer user does not have permission to create $TRASH_BASE"
+        echo ""
+        echo "Please ask your system administrator to run:"
+        echo "  sudo mkdir -p /scratch/trashcan"
+        echo "  sudo chmod 2777 /scratch/trashcan"
+        echo "  sudo chown installer:installer /scratch/trashcan"
+        echo ""
+        echo "Then run this setup script again."
+        echo ""
+        exit 1
+    fi
 else
     echo "[OK] $TRASH_BASE already exists"
-    # Verify permissions
+    
+    # Verify permissions on existing directory
     current_perms=$(stat -c %a "$TRASH_BASE" 2>/dev/null)
     current_group=$(stat -c %G "$TRASH_BASE" 2>/dev/null)
-    
+
     echo "  Current permissions: $current_perms"
     echo "  Current group: $current_group"
-    
+
     # Check if SGID is set (2xxx or 3xxx permissions)
     if [[ ! "$current_perms" =~ ^[23] ]]; then
         echo "  --> Setting SGID bit..."
-        chmod g+s "$TRASH_BASE"
+        chmod g+s "$TRASH_BASE" 2>/dev/null
     fi
 fi
 
@@ -103,16 +147,16 @@ fi
 for user_home in $user_list; do
     if [ -d "$user_home" ]; then
         username=$(basename "$user_home")
-        
+
         # Skip system users
         if [ "$username" = "installer" ] || [ "$username" = "root" ]; then
             ((users_skipped++))
             continue
         fi
-        
+
         user_trash_dir="$TRASH_BASE/$username"
         symlink_path="$user_home/.trash"
-        
+
         # First, handle existing ~/.trash if it's not a symlink
         # Must check as the user since installer can't access user home directories
         trash_exists=$(sudo -u "$username" bash -c "
@@ -122,7 +166,7 @@ for user_home in $user_list; do
                 echo 'no'
             fi
         " 2>/dev/null)
-        
+
         if [ "$trash_exists" = "yes" ]; then
             # ~/.trash exists but is not a symlink - rename it first
             echo "  --> Found existing .trash directory for $username"
@@ -136,11 +180,11 @@ for user_home in $user_list; do
                 continue
             fi
         fi
-        
+
         # Second, check if trashcan directory already exists
         if [ -d "$user_trash_dir" ]; then
             echo "  --> $username already has trashcan directory"
-            
+
             # Verify trash subdirectory exists
             if [ ! -d "$user_trash_dir/trash" ]; then
                 echo "    Creating trash subdirectory..."
@@ -153,7 +197,7 @@ for user_home in $user_list; do
         else
             # Create fresh user's trash directory
             echo "Creating trash directory for $username..."
-            
+
             # Create as the user with correct permissions
             # SGID on parent ensures installer group is inherited
             sudo -u "$username" bash -c "
@@ -163,7 +207,7 @@ for user_home in $user_list; do
                 chmod g+s '$user_trash_dir'
                 chmod g+s '$user_trash_dir/trash'
             " 2>/dev/null
-            
+
             if [ $? -eq 0 ]; then
                 ((users_created++))
                 echo "  [OK] Created trash directory"
@@ -172,7 +216,7 @@ for user_home in $user_list; do
                 continue
             fi
         fi
-        
+
         # Finally create symlink in user's home directory
         # Check as user since installer can't access home directories
         symlink_status=$(sudo -u "$username" bash -c "
@@ -184,7 +228,7 @@ for user_home in $user_list; do
                 echo 'none'
             fi
         " 2>/dev/null)
-        
+
         if [ "$symlink_status" = "exists" ]; then
             echo "  --> Symlink already exists for $username"
         elif [ "$symlink_status" = "not_symlink" ]; then

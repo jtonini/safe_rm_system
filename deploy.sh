@@ -1,11 +1,22 @@
 #!/bin/bash
 # Quick deployment script for safe_rm system
-
+# Supports both centralized and local trash modes
 set -e  # Exit on error
 
 REPO_DIR="$HOME/safe_rm_system"
 BIN_DIR="/usr/local/sw/bin"
 SINGLE_USER=""
+
+# Detect mode
+if [ -d "/scratch" ] && [ -d "/scratch/trashcan" ]; then
+    MODE="centralized"
+elif [ ! -d "/scratch" ]; then
+    MODE="local"
+else
+    # /scratch exists but /scratch/trashcan doesn't
+    # Try to create it, let setup script handle the details
+    MODE="centralized-setup"
+fi
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -18,6 +29,9 @@ while [[ $# -gt 0 ]]; do
             cat << EOF
 Deploy Safe RM System - Help
 ========================================
+
+Current mode: $([ "$MODE" = "centralized" ] || [ "$MODE" = "centralized-setup" ] && echo "centralized" || echo "$MODE")
+$([ "$MODE" = "centralized" ] || [ "$MODE" = "centralized-setup" ] && echo "  Centralized trash in /scratch/trashcan" || echo "  Local trash in ~/.trash")
 
 Usage: deploy.sh [OPTIONS]
 
@@ -51,12 +65,29 @@ if [ "$(whoami)" != "installer" ]; then
     exit 1
 fi
 
-# Step 1: Setup directories and symlinks
-echo "Step 1: Setting up trash directories..."
-if [ -n "$SINGLE_USER" ]; then
-    "$REPO_DIR/bin/setup_centralized_trash.sh" -u "$SINGLE_USER"
+# Handle mode-specific setup
+if [ "$MODE" = "centralized" ] || [ "$MODE" = "centralized-setup" ]; then
+    # Centralized mode: run setup script (it will create /scratch/trashcan if needed)
+    if [ "$MODE" = "centralized-setup" ]; then
+        echo "Mode: CENTRALIZED (will create /scratch/trashcan)"
+    else
+        echo "Mode: CENTRALIZED (/scratch/trashcan)"
+    fi
+    echo ""
+    echo "Step 1: Setting up trash directories..."
+    if [ -n "$SINGLE_USER" ]; then
+        "$REPO_DIR/bin/setup_centralized_trash.sh" -u "$SINGLE_USER"
+    else
+        "$REPO_DIR/bin/setup_centralized_trash.sh"
+    fi
 else
-    "$REPO_DIR/bin/setup_centralized_trash.sh"
+    # Local mode: no setup needed
+    echo "Mode: LOCAL (~/.trash)"
+    echo ""
+    echo "Step 1: Directory setup"
+    echo "  --> No setup required for local mode"
+    echo "  --> Trash directories will be created automatically when users first use 'rm'"
+    echo ""
 fi
 
 echo ""
@@ -77,7 +108,7 @@ else
     echo "    ln -sf $REPO_DIR/bin/safe_rm.sh $BIN_DIR/safe_rm"
     echo "    ln -sf $REPO_DIR/bin/trash_cleanup.sh $BIN_DIR/trash_cleanup"
     echo ""
-    read -p "  Press Enter to continue..." 
+    read -p "  Press Enter to continue..."
 fi
 
 echo ""
@@ -85,8 +116,17 @@ echo "=========================================="
 echo "  DEPLOYMENT COMPLETE"
 echo "=========================================="
 echo ""
-echo "[OK] Trash directories created in /scratch/trashcan"
-echo "[OK] User symlinks created in /home/<user>/.trash"
+
+if [ "$MODE" = "centralized" ] || [ "$MODE" = "centralized-setup" ]; then
+    echo "[OK] Mode: CENTRALIZED"
+    echo "[OK] Trash directories created in /scratch/trashcan"
+    echo "[OK] User symlinks created in /home/<user>/.trash"
+else
+    echo "[OK] Mode: LOCAL"
+    echo "[OK] Trash will be created in /home/<user>/.trash"
+    echo "[OK] No pre-setup required (automatic on first use)"
+fi
+
 echo "[OK] Scripts installed in $BIN_DIR"
 echo ""
 
@@ -99,6 +139,11 @@ if [ -n "$SINGLE_USER" ]; then
     echo "     echo 'test' > /tmp/testfile"
     echo "     rm /tmp/testfile"
     echo "     ls ~/.trash/"
+    if [ "$MODE" = "centralized" ]; then
+        echo "     # Should be a symlink to /scratch/trashcan/$SINGLE_USER/trash"
+    else
+        echo "     # Should be a directory (not a symlink)"
+    fi
     echo ""
     echo "  2. Test trash_cleanup:"
     echo "     trash_cleanup -u $SINGLE_USER"
@@ -107,7 +152,7 @@ if [ -n "$SINGLE_USER" ]; then
     echo "     ./deploy.sh"
 else
     echo "Next manual steps:"
-    echo "  1. Alias already set in /etc/bashrc:"
+    echo "  1. Alias already set in /usr/local/etc/usersrc/common:"
     echo "     alias rm='/usr/local/sw/bin/safe_rm'"
     echo ""
     echo "  2. Add cron job (crontab -e):"
@@ -117,7 +162,7 @@ else
     echo "     source ~/.bashrc"
     echo ""
     echo "Test it:"
-    echo "  trash_cleanup              # Show statistics"
+    echo "  trash_cleanup              # Show statistics (will show mode)"
     echo "  echo 'test' > /tmp/test && rm /tmp/test"
 fi
 echo ""

@@ -1,8 +1,16 @@
 #!/bin/bash
-# Centralized trash cleanup for safe_rm system
-# Scans /scratch/trashcan/*/trash for old directories
+# Trash cleanup for safe_rm system
+# Supports both centralized (/scratch/trashcan) and local (~/.trash) modes
 
-TRASH_BASE="/scratch/trashcan"
+# Detect trash mode
+if [ -d "/scratch" ] && [ -d "/scratch/trashcan" ]; then
+    MODE="centralized"
+    TRASH_BASE="/scratch/trashcan"
+else
+    MODE="local"
+    TRASH_BASE="/home"
+fi
+
 LOG_DIR="/usr/local/sw/logs"
 LOG_FILE="$LOG_DIR/trash_cleanup.log"
 mkdir -p "$LOG_DIR"
@@ -12,6 +20,9 @@ show_help() {
     cat << EOF
 Safe-RM Trash Cleanup - Help
 ========================================
+
+Current mode: $MODE
+$([ "$MODE" = "centralized" ] && echo "  Location: /scratch/trashcan/<username>/trash" || echo "  Location: /home/<username>/.trash")
 
 Usage: trash_cleanup [OPTIONS]
 
@@ -32,9 +43,7 @@ Examples:
   trash_cleanup -u jtonini                       # Dry run for jtonini only
   trash_cleanup -u jtonini --do-it               # Clean jtonini's trash
   trash_cleanup -a 30m --do-it                   # Clean all users, 30 min old
-  trash_cleanup -u jtonini -a 1h --do-it         # Clean jtonini, 1 hour old
 
-Centralized trash location: $TRASH_BASE/<username>/trash
 Log file: $LOG_FILE
 EOF
     exit 0
@@ -56,7 +65,6 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -a|--age)
-            # Parse age argument (e.g., 30m, 2h, 7d)
             if [[ $2 =~ ^([0-9]+)([mhd])$ ]]; then
                 AGE_VALUE="${BASH_REMATCH[1]}"
                 AGE_UNIT="${BASH_REMATCH[2]}"
@@ -104,17 +112,33 @@ case $AGE_UNIT in
         ;;
 esac
 
-# Determine which users to process
-if [ -n "$SINGLE_USER" ]; then
-    if [ ! -d "$TRASH_BASE/$SINGLE_USER" ]; then
-        echo "Error: User '$SINGLE_USER' not found in $TRASH_BASE/"
-        exit 1
+# Determine which users to process based on mode
+if [ "$MODE" = "centralized" ]; then
+    # Centralized mode: scan /scratch/trashcan
+    if [ -n "$SINGLE_USER" ]; then
+        if [ ! -d "$TRASH_BASE/$SINGLE_USER" ]; then
+            echo "Error: User '$SINGLE_USER' not found in $TRASH_BASE/"
+            exit 1
+        fi
+        user_list="$TRASH_BASE/$SINGLE_USER"
+        target_msg="user '$SINGLE_USER'"
+    else
+        user_list="$TRASH_BASE/*"
+        target_msg="ALL users"
     fi
-    user_list="$TRASH_BASE/$SINGLE_USER"
-    target_msg="user '$SINGLE_USER'"
 else
-    user_list="$TRASH_BASE/*"
-    target_msg="ALL users"
+    # Local mode: scan /home/*/.trash
+    if [ -n "$SINGLE_USER" ]; then
+        if [ ! -d "/home/$SINGLE_USER" ]; then
+            echo "Error: User '$SINGLE_USER' not found in /home/"
+            exit 1
+        fi
+        user_list="/home/$SINGLE_USER"
+        target_msg="user '$SINGLE_USER'"
+    else
+        user_list="/home/*"
+        target_msg="ALL users"
+    fi
 fi
 
 # Initialize statistics
@@ -139,9 +163,14 @@ else
     echo "=========================================="
 fi
 
+echo "Mode: $MODE"
 echo "Target: $target_msg"
 echo "Action: Delete trash directories older than $AGE_DISPLAY"
-echo "Location: $TRASH_BASE"
+if [ "$MODE" = "centralized" ]; then
+    echo "Location: /scratch/trashcan"
+else
+    echo "Location: /home/*/.trash"
+fi
 echo ""
 
 if [ "$DO_IT" = false ]; then
@@ -157,90 +186,161 @@ fi
 echo "Scanning trash directories..."
 echo ""
 
-# Process each user's trash
-for user_dir in $user_list; do
-    if [ -d "$user_dir" ]; then
-        username=$(basename "$user_dir")
-
-        # Skip if not a valid user directory
-        if [ "$username" = "*" ]; then
-            continue
-        fi
-
-        ((total_scanned++))
-
-        trash_dir="$user_dir/trash"
-
-        echo "Checking $username..." >&2
-
-        # Check if trash exists
-        if [ ! -d "$trash_dir" ]; then
-            continue
-        fi
-
-        ((with_trash++))
-
-        # Get trash size in KB (before cleanup for dry run)
-        if [ "$DO_IT" = false ]; then
-            trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
-            if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
-                trash_sizes[$username]=$trash_size_kb
-                total_size_kb=$((total_size_kb + trash_size_kb))
-            fi
-        fi
-
-        if [ "$DO_IT" = true ]; then
-            # Actually delete old trash - run as the user to ensure proper permissions
-            deleted=$(sudo -n -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
-
-            if [ "$deleted" -gt 0 ]; then
-                ((cleaned++))
-                echo "  [OK] Cleaned $username's trash ($deleted directories)"
-                echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
-            fi
-        else
-            # Dry run - show what would be deleted
-            old_dirs=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
-
-            if [ -n "$old_dirs" ]; then
-                dir_count=$(echo "$old_dirs" | wc -l)
-                size=$(du -sh "$trash_dir" 2>/dev/null | cut -f1)
-                echo "  --> Found: $dir_count old directories, trash size: $size"
-            fi
-        fi
-    fi
-done
-
-# If we actually cleaned up, recalculate sizes to show remaining trash
-if [ "$DO_IT" = true ]; then
-    echo ""
-    echo "Recalculating remaining trash sizes..." >&2
-    
-    # Reset counters for recalculation
-    total_size_kb=0
-    unset trash_sizes
-    declare -A trash_sizes
-    
+# Process each user's trash based on mode
+if [ "$MODE" = "centralized" ]; then
+    # CENTRALIZED MODE: scan /scratch/trashcan/username/trash
     for user_dir in $user_list; do
         if [ -d "$user_dir" ]; then
             username=$(basename "$user_dir")
+
+            if [ "$username" = "*" ]; then
+                continue
+            fi
+
+            ((total_scanned++))
             trash_dir="$user_dir/trash"
-            
-            if [ -d "$trash_dir" ]; then
-                # Recalculate size after cleanup
+
+            echo "Checking $username..." >&2
+
+            if [ ! -d "$trash_dir" ]; then
+                continue
+            fi
+
+            ((with_trash++))
+
+            # Get trash size in KB (before cleanup for dry run)
+            if [ "$DO_IT" = false ]; then
                 trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
                 if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
                     trash_sizes[$username]=$trash_size_kb
                     total_size_kb=$((total_size_kb + trash_size_kb))
                 fi
             fi
+
+            if [ "$DO_IT" = true ]; then
+                deleted=$(sudo -n -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+
+                if [ "$deleted" -gt 0 ]; then
+                    ((cleaned++))
+                    echo "  [OK] Cleaned $username's trash ($deleted directories)"
+                    echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
+                fi
+            else
+                old_dirs=$(find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+
+                if [ -n "$old_dirs" ]; then
+                    dir_count=$(echo "$old_dirs" | wc -l)
+                    size=$(du -sh "$trash_dir" 2>/dev/null | cut -f1)
+                    echo "  --> Found: $dir_count old directories, trash size: $size"
+                fi
+            fi
         fi
     done
+
+    # Recalculate sizes after cleanup in centralized mode
+    if [ "$DO_IT" = true ]; then
+        echo ""
+        echo "Recalculating remaining trash sizes..." >&2
+        
+        total_size_kb=0
+        unset trash_sizes
+        declare -A trash_sizes
+        
+        for user_dir in $user_list; do
+            if [ -d "$user_dir" ]; then
+                username=$(basename "$user_dir")
+                trash_dir="$user_dir/trash"
+                
+                if [ -d "$trash_dir" ]; then
+                    trash_size_kb=$(du -sk "$trash_dir" 2>/dev/null | cut -f1)
+                    if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
+                        trash_sizes[$username]=$trash_size_kb
+                        total_size_kb=$((total_size_kb + trash_size_kb))
+                    fi
+                fi
+            fi
+        done
+    fi
+else
+    # LOCAL MODE: scan /home/username/.trash
+    for user_home in $user_list; do
+        if [ -d "$user_home" ]; then
+            username=$(basename "$user_home")
+
+            if [ "$username" = "*" ]; then
+                continue
+            fi
+
+            ((total_scanned++))
+            trash_dir="$user_home/.trash"
+
+            echo "Checking $username..." >&2
+
+            # Skip if .trash doesn't exist or is a symlink (symlink means centralized mode setup)
+            if [ ! -d "$trash_dir" ] || [ -L "$trash_dir" ]; then
+                continue
+            fi
+
+            ((with_trash++))
+
+            # Get trash size in KB (before cleanup for dry run)
+            if [ "$DO_IT" = false ]; then
+                trash_size_kb=$(sudo -n -u "$username" du -sk "$trash_dir" 2>/dev/null | cut -f1)
+                if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
+                    trash_sizes[$username]=$trash_size_kb
+                    total_size_kb=$((total_size_kb + trash_size_kb))
+                fi
+            fi
+
+            if [ "$DO_IT" = true ]; then
+                deleted=$(sudo -n -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
+
+                if [ "$deleted" -gt 0 ]; then
+                    ((cleaned++))
+                    echo "  [OK] Cleaned $username's trash ($deleted directories)"
+                    echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
+                fi
+            else
+                old_dirs=$(sudo -n -u "$username" find "$trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+
+                if [ -n "$old_dirs" ]; then
+                    dir_count=$(echo "$old_dirs" | wc -l)
+                    size=$(sudo -n -u "$username" du -sh "$trash_dir" 2>/dev/null | cut -f1)
+                    echo "  --> Found: $dir_count old directories, trash size: $size"
+                fi
+            fi
+        fi
+    done
+
+    # Recalculate sizes after cleanup in local mode
+    if [ "$DO_IT" = true ]; then
+        echo ""
+        echo "Recalculating remaining trash sizes..." >&2
+        
+        total_size_kb=0
+        unset trash_sizes
+        declare -A trash_sizes
+        
+        for user_home in $user_list; do
+            if [ -d "$user_home" ]; then
+                username=$(basename "$user_home")
+                trash_dir="$user_home/.trash"
+                
+                if [ -d "$trash_dir" ] && [ ! -L "$trash_dir" ]; then
+                    trash_size_kb=$(sudo -n -u "$username" du -sk "$trash_dir" 2>/dev/null | cut -f1)
+                    if [ -n "$trash_size_kb" ] && [ "$trash_size_kb" -gt 0 ]; then
+                        trash_sizes[$username]=$trash_size_kb
+                        total_size_kb=$((total_size_kb + trash_size_kb))
+                    fi
+                fi
+            fi
+        done
+    fi
 fi
 
 echo ""
 
-# Also check for .trash.old directories in /home (from migration)
+# Also check for .trash.old directories in /home (from migration) - applies to both modes
 echo "Checking for old trash directories in /home..." >&2
 echo ""
 
@@ -248,15 +348,12 @@ for user_home in /home/*; do
     if [ -d "$user_home" ]; then
         username=$(basename "$user_home")
         
-        # Skip if processing single user and this isn't that user
         if [ -n "$SINGLE_USER" ] && [ "$username" != "$SINGLE_USER" ]; then
             continue
         fi
         
         old_trash_dir="$user_home/.trash.old"
 
-        # Skip if .trash.old doesn't exist or we can't access it (check as user due to permissions)
-        # Use -n flag for non-interactive sudo (fails immediately if password needed)
         if ! sudo -n -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
             continue
         fi
@@ -265,7 +362,6 @@ for user_home in /home/*; do
 
         echo "Checking $username's .trash.old..." >&2
 
-        # Get size (before cleanup for dry run) - use sudo -u for permissions
         if [ "$DO_IT" = false ]; then
             old_size_kb=$(sudo -n -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
             if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
@@ -275,7 +371,6 @@ for user_home in /home/*; do
         fi
 
         if [ "$DO_IT" = true ]; then
-            # Delete old trash directories with same age policy - run as user
             deleted=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -rf {} + 2>/dev/null | wc -l)
 
             if [ "$deleted" -gt 0 ]; then
@@ -284,7 +379,6 @@ for user_home in /home/*; do
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted directories removed" >> "$LOG_FILE"
             fi
 
-            # Also delete loose files (not in timestamped directories) older than threshold
             deleted_files=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE -print -exec /bin/rm -f {} + 2>/dev/null | wc -l)
             
             if [ "$deleted_files" -gt 0 ]; then
@@ -292,9 +386,7 @@ for user_home in /home/*; do
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted_files loose files removed" >> "$LOG_FILE"
             fi
             
-            # If .trash.old is now empty AND older than 30 days, remove it
             if [ -z "$(sudo -n -u "$username" ls -A "$old_trash_dir" 2>/dev/null)" ]; then
-                # Check if directory is older than 30 days
                 dir_age_days=$(( ( $(date +%s) - $(sudo -n -u "$username" stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
                 if [ "$dir_age_days" -gt 30 ]; then
                     sudo -n -u "$username" rmdir "$old_trash_dir" 2>/dev/null
@@ -303,7 +395,6 @@ for user_home in /home/*; do
                 fi
             fi
         else
-            # Dry run - use sudo -u for permissions
             old_dirs=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
             old_files=$(sudo -n -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
 
@@ -321,12 +412,11 @@ for user_home in /home/*; do
     fi
 done
 
-# If we actually cleaned up .trash.old, recalculate sizes
+# Recalculate .trash.old sizes after cleanup
 if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
     echo ""
     echo "Recalculating remaining .trash.old sizes..." >&2
     
-    # Reset counters for recalculation
     old_total_size_kb=0
     unset old_trash_sizes
     declare -A old_trash_sizes
@@ -335,16 +425,13 @@ if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
         if [ -d "$user_home" ]; then
             username=$(basename "$user_home")
             
-            # Skip if processing single user and this isn't that user
             if [ -n "$SINGLE_USER" ] && [ "$username" != "$SINGLE_USER" ]; then
                 continue
             fi
             
             old_trash_dir="$user_home/.trash.old"
             
-            # Check if .trash.old exists (as user)
             if sudo -n -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
-                # Recalculate size after cleanup (as user)
                 old_size_kb=$(sudo -n -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
                 if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
                     old_trash_sizes[$username]=$old_size_kb
@@ -373,9 +460,15 @@ echo "=========================================="
 echo "           SUMMARY REPORT"
 echo "=========================================="
 echo ""
-echo "=========================================="
-echo "  CENTRALIZED TRASH (/scratch/trashcan)"
-echo "=========================================="
+if [ "$MODE" = "centralized" ]; then
+    echo "=========================================="
+    echo "  CENTRALIZED TRASH (/scratch/trashcan)"
+    echo "=========================================="
+else
+    echo "=========================================="
+    echo "  LOCAL TRASH (/home/*/.trash)"
+    echo "=========================================="
+fi
 echo "  Total users scanned:     $total_scanned"
 echo "  Users with .trash:       $with_trash"
 if [ "$DO_IT" = true ]; then
@@ -455,7 +548,7 @@ fi
 
 # Log summary
 if [ "$DO_IT" = true ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | age: $AGE_DISPLAY | cleaned $cleaned out of $total_scanned users | remaining size: $total_size_human" >> "$LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | mode: $MODE | age: $AGE_DISPLAY | cleaned $cleaned out of $total_scanned users | remaining size: $total_size_human" >> "$LOG_FILE"
     if [ "$with_old_trash" -gt 0 ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') | SUMMARY | .trash.old | cleaned $old_cleaned users | remaining old trash: $old_total_size_human" >> "$LOG_FILE"
     fi
