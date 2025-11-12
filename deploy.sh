@@ -113,13 +113,32 @@ fi
 
 echo ""
 echo "Step 3: Setting up rm alias..."
+echo ""
 
 # Run alias setup script
 if [ -f "$REPO_DIR/bin/setup_alias.sh" ]; then
-    "$REPO_DIR/bin/setup_alias.sh"
+    # Make sure it's executable
+    chmod +x "$REPO_DIR/bin/setup_alias.sh" 2>/dev/null
+    
+    # Run the alias setup
+    if bash "$REPO_DIR/bin/setup_alias.sh"; then
+        # Completed successfully (may have added alias or shown manual instructions)
+        :
+    else
+        echo "  [WARN] Alias setup script encountered an issue"
+        echo "  You can run it manually later: ./bin/setup_alias.sh"
+    fi
 else
-    echo "  [WARN] setup_alias.sh not found, skipping alias setup"
-    echo "  You may need to manually configure the rm alias"
+    echo "  [WARN] setup_alias.sh not found at: $REPO_DIR/bin/setup_alias.sh"
+    echo ""
+    echo "  Manual alias setup needed. Add this to your system's bash config:"
+    echo "  ---"
+    echo "  # Safe rm - move files to trash instead of permanent deletion"
+    echo "  if [ -f /usr/local/sw/bin/safe_rm ]; then"
+    echo "      unalias rm 2>/dev/null"
+    echo "      alias rm='/usr/local/sw/bin/safe_rm'"
+    echo "  fi"
+    echo "  ---"
 fi
 
 echo ""
