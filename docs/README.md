@@ -2,10 +2,27 @@
 
 A safe deletion system using centralized trash storage in `/scratch/trashcan`.
 
+## Quick Start
+
+**Test with a single existing user:**
+```bash
+cd ~/safe_rm_system
+./deploy.sh -u yourusername
+```
+
+**Deploy system-wide (all existing users):**
+```bash
+cd ~/safe_rm_system
+./deploy.sh
+```
+
+**Note:** New users created later will be set up automatically on first use of `rm`.
+
 ## Architecture
 
 - **Centralized trash**: `/scratch/trashcan/<username>/trash`
 - **User symlink**: `/home/<username>/.trash` -> `/scratch/trashcan/<username>/trash`
+- **Automatic setup**: New users are configured automatically on first use
 - **Automatic migration**: If `~/.trash` exists as a directory, it's renamed to `~/.trash.old`
 - **Old trash cleanup**: `trash_cleanup` also cleans `~/.trash.old` directories (including loose files)
 - **Permissions**: User owns, `installer` group (gid 1012) has read/write access
@@ -43,7 +60,7 @@ git init
 # Add files to bin/ directory
 ```
 
-### 2. Run Setup Script (creates directories and symlinks)
+### 2. Run Setup Script (initial deployment for existing users)
 
 ```bash
 cd ~/safe_rm_system
@@ -52,11 +69,13 @@ chmod +x deploy.sh
 ./bin/setup_centralized_trash.sh
 ```
 
-This will:
-- Verify `/scratch/trashcan` exists with proper permissions
-- Create `/scratch/trashcan/<user>/trash` for each user
-- Create symlinks: `/home/<user>/.trash` -> `/scratch/trashcan/<user>/trash`
-- Set proper permissions (770, attempts SGID where supported)
+This will set up **existing users** with:
+- `/scratch/trashcan/<user>/trash` directories
+- Symlinks: `/home/<user>/.trash` -> `/scratch/trashcan/<user>/trash`
+- Proper permissions (770, attempts SGID where supported)
+- Migration of existing `.trash` directories to `.trash.old`
+
+**Note:** New users created after deployment are handled automatically by safe_rm!
 
 ### 3. Install Scripts via Symlinks
 
@@ -66,9 +85,16 @@ ln -sf ~/safe_rm_system/bin/safe_rm.sh /usr/local/sw/bin/safe_rm
 ln -sf ~/safe_rm_system/bin/trash_cleanup.sh /usr/local/sw/bin/trash_cleanup
 ```
 
-**Or use deploy script (handles everything):**
+**Or use deploy script:**
+
+For all users:
 ```bash
 ~/safe_rm_system/deploy.sh
+```
+
+For a single user (testing):
+```bash
+~/safe_rm_system/deploy.sh -u username
 ```
 
 **Note**: Using symlinks means updates to the git repo automatically update the installed scripts!
@@ -229,13 +255,19 @@ mv ~/.trash.old/important.txt ~/
 
 ### Add New Users
 
-Run the setup script to add new users:
+**New users are handled automatically!** When a new user first runs `rm`, safe_rm will:
+- Create `/scratch/trashcan/username/trash`
+- Create symlink `/home/username/.trash`
+- Migrate any existing `.trash` directory if present
 
+**Manual setup only needed for:**
+
+Bulk migration of existing users:
 ```bash
 ./bin/setup_centralized_trash.sh
 ```
 
-Or for a single user:
+Single user setup/verification:
 ```bash
 ./deploy.sh -u username
 ```
