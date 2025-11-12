@@ -129,6 +129,8 @@ users_created=0
 users_skipped=0
 symlinks_created=0
 directories_migrated=0
+users_failed=0
+failed_users=()  # Array to track which users failed
 
 # Determine which users to process
 if [ -n "$SINGLE_USER" ]; then
@@ -220,6 +222,8 @@ for user_home in $user_list; do
                 echo "  [OK] Created trash directory"
             else
                 echo "  [FAIL] Failed to create directory for $username"
+                ((users_failed++))
+                failed_users+=("$username")
                 continue
             fi
         fi
@@ -249,6 +253,8 @@ for user_home in $user_list; do
                 ((symlinks_created++))
             else
                 echo "  [FAIL] Failed to create symlink for $username"
+                ((users_failed++))
+                failed_users+=("$username")
             fi
         fi
     fi
@@ -271,6 +277,10 @@ echo "  Directories migrated:    $directories_migrated"
 echo "  Users skipped:           $users_skipped"
 if [ "$users_skipped" -gt 0 ]; then
     echo "    (system users + no passwordless sudo access)"
+fi
+if [ "$users_failed" -gt 0 ]; then
+    echo "  Users failed:            $users_failed"
+    echo "    Failed: ${failed_users[*]}"
 fi
 echo ""
 echo "Structure:"
@@ -296,14 +306,12 @@ if [ -n "$SINGLE_USER" ]; then
     echo "  3. If everything works, deploy to all users:"
     echo "     ./bin/setup_centralized_trash.sh"
 else
-    echo "Next steps:"
-    echo "  1. Install safe_rm and trash_cleanup scripts (if not done):"
-    echo "     ln -sf ~/safe_rm_system/bin/safe_rm.sh /usr/local/sw/bin/safe_rm"
-    echo "     ln -sf ~/safe_rm_system/bin/trash_cleanup.sh /usr/local/sw/bin/trash_cleanup"
+    echo "Setup complete!"
     echo ""
-    echo "  2. Alias already set in /etc/bashrc"
-    echo ""
-    echo "  3. Configure cron job for trash_cleanup"
+    echo "  The deploy.sh script will handle:"
+    echo "  - Installing scripts to /usr/local/sw/bin"
+    echo "  - Setting up the rm alias"
+    echo "  - Showing cron job instructions"
 fi
 echo ""
 echo "=========================================="

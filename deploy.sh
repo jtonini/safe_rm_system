@@ -94,6 +94,7 @@ echo ""
 echo "Step 2: Installing scripts to $BIN_DIR..."
 
 # Check if installer can write to /usr/local/sw/bin
+SCRIPTS_INSTALLED=true
 if [ -w "$BIN_DIR" ]; then
     # Create symlinks directly
     ln -sf "$REPO_DIR/bin/safe_rm.sh" "$BIN_DIR/safe_rm"
@@ -102,13 +103,8 @@ if [ -w "$BIN_DIR" ]; then
     echo "  [OK] Created symlink: $BIN_DIR/trash_cleanup"
 else
     # Need to show commands to run
-    echo "  [WARN] Cannot write to $BIN_DIR directly"
-    echo ""
-    echo "  Run these commands to create symlinks:"
-    echo "    ln -sf $REPO_DIR/bin/safe_rm.sh $BIN_DIR/safe_rm"
-    echo "    ln -sf $REPO_DIR/bin/trash_cleanup.sh $BIN_DIR/trash_cleanup"
-    echo ""
-    read -p "  Press Enter to continue..."
+    echo "  [FAIL] Cannot write to $BIN_DIR"
+    SCRIPTS_INSTALLED=false
 fi
 
 echo ""
@@ -116,29 +112,22 @@ echo "Step 3: Setting up rm alias..."
 echo ""
 
 # Run alias setup script
+ALIAS_SETUP_RESULT="unknown"
 if [ -f "$REPO_DIR/bin/setup_alias.sh" ]; then
     # Make sure it's executable
     chmod +x "$REPO_DIR/bin/setup_alias.sh" 2>/dev/null
     
-    # Run the alias setup
+    # Run the alias setup and capture its output
     if bash "$REPO_DIR/bin/setup_alias.sh"; then
-        # Completed successfully (may have added alias or shown manual instructions)
-        :
+        # Check if it actually configured the alias or just showed instructions
+        # We can't easily detect this, so we'll assume success means it's handled
+        ALIAS_SETUP_RESULT="success"
     else
-        echo "  [WARN] Alias setup script encountered an issue"
-        echo "  You can run it manually later: ./bin/setup_alias.sh"
+        ALIAS_SETUP_RESULT="failed"
     fi
 else
     echo "  [WARN] setup_alias.sh not found at: $REPO_DIR/bin/setup_alias.sh"
-    echo ""
-    echo "  Manual alias setup needed. Add this to your system's bash config:"
-    echo "  ---"
-    echo "  # Safe rm - move files to trash instead of permanent deletion"
-    echo "  if [ -f /usr/local/sw/bin/safe_rm ]; then"
-    echo "      unalias rm 2>/dev/null"
-    echo "      alias rm='/usr/local/sw/bin/safe_rm'"
-    echo "  fi"
-    echo "  ---"
+    ALIAS_SETUP_RESULT="missing"
 fi
 
 echo ""
@@ -157,7 +146,12 @@ else
     echo "[OK] No pre-setup required (automatic on first use)"
 fi
 
-echo "[OK] Scripts installed in $BIN_DIR"
+if [ "$SCRIPTS_INSTALLED" = true ]; then
+    echo "[OK] Scripts installed in $BIN_DIR"
+else
+    echo "[FAIL] Scripts NOT installed in $BIN_DIR"
+fi
+
 echo ""
 
 if [ -n "$SINGLE_USER" ]; then
@@ -169,7 +163,7 @@ if [ -n "$SINGLE_USER" ]; then
     echo "     echo 'test' > /tmp/testfile"
     echo "     rm /tmp/testfile"
     echo "     ls ~/.trash/"
-    if [ "$MODE" = "centralized" ]; then
+    if [ "$MODE" = "centralized" ] || [ "$MODE" = "centralized-setup" ]; then
         echo "     # Should be a symlink to /scratch/trashcan/$SINGLE_USER/trash"
     else
         echo "     # Should be a directory (not a symlink)"
@@ -181,19 +175,51 @@ if [ -n "$SINGLE_USER" ]; then
     echo "  3. If everything works, deploy to all users:"
     echo "     ./deploy.sh"
 else
-    echo "Next manual steps:"
-    echo "  1. Verify rm alias is configured:"
-    echo "     Open new terminal and run: alias rm"
-    echo "     Should show: alias rm='/usr/local/sw/bin/safe_rm'"
+    # Show manual steps only for things that need manual intervention
+    NEEDS_MANUAL=false
+    
+    echo "=========================================="
+    echo "  NEXT STEPS"
+    echo "=========================================="
     echo ""
-    echo "  2. If alias not configured, the setup_alias.sh script showed instructions above"
+    
+    if [ "$SCRIPTS_INSTALLED" = false ]; then
+        NEEDS_MANUAL=true
+        echo "MANUAL ACTION REQUIRED: Install scripts"
+        echo "  Run these commands:"
+        echo "    ln -sf $REPO_DIR/bin/safe_rm.sh $BIN_DIR/safe_rm"
+        echo "    ln -sf $REPO_DIR/bin/trash_cleanup.sh $BIN_DIR/trash_cleanup"
+        echo ""
+    fi
+    
+    if [ "$ALIAS_SETUP_RESULT" = "missing" ] || [ "$ALIAS_SETUP_RESULT" = "failed" ]; then
+        NEEDS_MANUAL=true
+        echo "MANUAL ACTION REQUIRED: Set up rm alias"
+        echo "  The alias setup script showed instructions above, or run:"
+        echo "    ./bin/setup_alias.sh"
+        echo ""
+    fi
+    
+    # Always show cron setup (never automated)
+    echo "MANUAL ACTION REQUIRED: Set up cron job"
+    echo "  Run: crontab -e"
+    echo "  Add this line:"
+    echo "    0 2 * * * /usr/local/sw/bin/trash_cleanup --do-it >> /usr/local/sw/logs/trash_cleanup.log 2>&1"
     echo ""
-    echo "  3. Add cron job (crontab -e):"
-    echo "     0 2 * * * /usr/local/sw/bin/trash_cleanup --do-it >> /usr/local/sw/logs/trash_cleanup.log 2>&1"
-    echo ""
-    echo "Test it:"
+    
+    if [ "$NEEDS_MANUAL" = false ]; then
+        echo "Everything automated successfully!"
+        echo ""
+        echo "Verify alias (open new terminal):"
+        echo "  alias rm"
+        echo "  # Should show: alias rm='/usr/local/sw/bin/safe_rm'"
+        echo ""
+    fi
+    
+    echo "Test the system:"
     echo "  trash_cleanup              # Show statistics (will show mode)"
     echo "  echo 'test' > /tmp/test && rm /tmp/test"
 fi
+
 echo ""
 echo "=========================================="
