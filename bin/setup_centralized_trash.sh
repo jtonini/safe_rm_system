@@ -159,19 +159,26 @@ for user_home in $user_list; do
 
         # First, handle existing ~/.trash if it's not a symlink
         # Must check as the user since installer can't access user home directories
-        trash_exists=$(sudo -u "$username" bash -c "
+        trash_exists=$(sudo -n -u "$username" bash -c "
             if [ -e '$symlink_path' ] && [ ! -L '$symlink_path' ]; then
                 echo 'yes'
             else
                 echo 'no'
             fi
         " 2>/dev/null)
+        
+        # Check if sudo failed (no passwordless access)
+        if [ $? -ne 0 ] || [ -z "$trash_exists" ]; then
+            echo "  --> Skipping $username (no passwordless sudo access)"
+            ((users_skipped++))
+            continue
+        fi
 
         if [ "$trash_exists" = "yes" ]; then
             # ~/.trash exists but is not a symlink - rename it first
             echo "  --> Found existing .trash directory for $username"
             echo "      Renaming to .trash.old (preserves user data)..."
-            sudo -u "$username" mv "$symlink_path" "${symlink_path}.old" 2>/dev/null
+            sudo -n -u "$username" mv "$symlink_path" "${symlink_path}.old" 2>/dev/null
             if [ $? -eq 0 ]; then
                 echo "  [OK] Renamed to .trash.old"
                 ((directories_migrated++))
@@ -188,7 +195,7 @@ for user_home in $user_list; do
             # Verify trash subdirectory exists
             if [ ! -d "$user_trash_dir/trash" ]; then
                 echo "    Creating trash subdirectory..."
-                sudo -u "$username" bash -c "
+                sudo -n -u "$username" bash -c "
                     mkdir -p '$user_trash_dir/trash'
                     chmod 770 '$user_trash_dir/trash'
                     chmod g+s '$user_trash_dir/trash'
@@ -200,7 +207,7 @@ for user_home in $user_list; do
 
             # Create as the user with correct permissions
             # SGID on parent ensures installer group is inherited
-            sudo -u "$username" bash -c "
+            sudo -n -u "$username" bash -c "
                 mkdir -p '$user_trash_dir/trash'
                 chmod 770 '$user_trash_dir'
                 chmod 770 '$user_trash_dir/trash'
@@ -219,7 +226,7 @@ for user_home in $user_list; do
 
         # Finally create symlink in user's home directory
         # Check as user since installer can't access home directories
-        symlink_status=$(sudo -u "$username" bash -c "
+        symlink_status=$(sudo -n -u "$username" bash -c "
             if [ -L '$symlink_path' ]; then
                 echo 'exists'
             elif [ -e '$symlink_path' ]; then
@@ -236,7 +243,7 @@ for user_home in $user_list; do
             echo "  [WARN] .trash still exists as non-symlink after migration attempt"
         else
             # Create symlink as the user
-            sudo -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>/dev/null
+            sudo -n -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>/dev/null
             if [ $? -eq 0 ]; then
                 echo "  [OK] Created symlink for $username"
                 ((symlinks_created++))
@@ -262,6 +269,9 @@ echo "  New trash directories:   $users_created"
 echo "  New symlinks created:    $symlinks_created"
 echo "  Directories migrated:    $directories_migrated"
 echo "  Users skipped:           $users_skipped"
+if [ "$users_skipped" -gt 0 ]; then
+    echo "    (system users + no passwordless sudo access)"
+fi
 echo ""
 echo "Structure:"
 echo "  Trash location:  $TRASH_BASE/<username>/trash"
