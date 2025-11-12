@@ -255,8 +255,8 @@ for user_home in /home/*; do
         
         old_trash_dir="$user_home/.trash.old"
 
-        # Skip if .trash.old doesn't exist
-        if [ ! -d "$old_trash_dir" ]; then
+        # Skip if .trash.old doesn't exist (check as user due to permissions)
+        if ! sudo -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
             continue
         fi
 
@@ -264,9 +264,9 @@ for user_home in /home/*; do
 
         echo "Checking $username's .trash.old..." >&2
 
-        # Get size (before cleanup for dry run)
+        # Get size (before cleanup for dry run) - use sudo -u for permissions
         if [ "$DO_IT" = false ]; then
-            old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+            old_size_kb=$(sudo -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
             if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
                 old_trash_sizes[$username]=$old_size_kb
                 old_total_size_kb=$((old_total_size_kb + old_size_kb))
@@ -290,10 +290,11 @@ for user_home in /home/*; do
                 echo "  [OK] Cleaned $deleted_files loose file(s) from .trash.old"
                 echo "$(date '+%Y-%m-%d %H:%M:%S') | CLEANED | $username/.trash.old | age: $AGE_DISPLAY | $deleted_files loose files removed" >> "$LOG_FILE"
             fi
+            
             # If .trash.old is now empty AND older than 30 days, remove it
-            if [ -z "$(ls -A "$old_trash_dir" 2>/dev/null)" ]; then
+            if [ -z "$(sudo -u "$username" ls -A "$old_trash_dir" 2>/dev/null)" ]; then
                 # Check if directory is older than 30 days
-                dir_age_days=$(( ( $(date +%s) - $(stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
+                dir_age_days=$(( ( $(date +%s) - $(sudo -u "$username" stat -c %Y "$old_trash_dir" 2>/dev/null || echo 0) ) / 86400 ))
                 if [ "$dir_age_days" -gt 30 ]; then
                     sudo -u "$username" rmdir "$old_trash_dir" 2>/dev/null
                     echo "  [OK] Removed empty .trash.old directory (created $dir_age_days days ago)"
@@ -301,13 +302,19 @@ for user_home in /home/*; do
                 fi
             fi
         else
-            # Dry run
-            old_dirs=$(find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+            # Dry run - use sudo -u for permissions
+            old_dirs=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type d -name "2*" $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
+            old_files=$(sudo -u "$username" find "$old_trash_dir" -maxdepth 1 -type f $FIND_TIME_PARAM $FIND_TIME_VALUE 2>/dev/null)
 
             if [ -n "$old_dirs" ]; then
                 dir_count=$(echo "$old_dirs" | wc -l)
-                size=$(du -sh "$old_trash_dir" 2>/dev/null | cut -f1)
+                size=$(sudo -u "$username" du -sh "$old_trash_dir" 2>/dev/null | cut -f1)
                 echo "  --> Found: $dir_count old directories in .trash.old, size: $size"
+            fi
+            
+            if [ -n "$old_files" ]; then
+                file_count=$(echo "$old_files" | wc -l)
+                echo "  --> Found: $file_count old loose file(s) in .trash.old"
             fi
         fi
     fi
@@ -334,9 +341,10 @@ if [ "$DO_IT" = true ] && [ "$with_old_trash" -gt 0 ]; then
             
             old_trash_dir="$user_home/.trash.old"
             
-            if [ -d "$old_trash_dir" ]; then
-                # Recalculate size after cleanup
-                old_size_kb=$(du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
+            # Check if .trash.old exists (as user)
+            if sudo -u "$username" test -d "$old_trash_dir" 2>/dev/null; then
+                # Recalculate size after cleanup (as user)
+                old_size_kb=$(sudo -u "$username" du -sk "$old_trash_dir" 2>/dev/null | cut -f1)
                 if [ -n "$old_size_kb" ] && [ "$old_size_kb" -gt 0 ]; then
                     old_trash_sizes[$username]=$old_size_kb
                     old_total_size_kb=$((old_total_size_kb + old_size_kb))
