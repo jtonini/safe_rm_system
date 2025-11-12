@@ -200,12 +200,23 @@ else
         echo ""
     fi
     
-    # Always show cron setup (never automated)
-    echo "MANUAL ACTION REQUIRED: Set up cron job"
-    echo "  Run: crontab -e"
-    echo "  Add this line:"
-    echo "    0 2 * * * /usr/local/sw/bin/trash_cleanup --do-it >> /usr/local/sw/logs/trash_cleanup.log 2>&1"
-    echo ""
+    # Always check cron setup (but may already be configured)
+    CRON_CONFIGURED=false
+    if crontab -l 2>/dev/null | grep -q "trash_cleanup.*--do-it"; then
+        CRON_CONFIGURED=true
+    fi
+    
+    if [ "$CRON_CONFIGURED" = false ]; then
+        echo "MANUAL ACTION REQUIRED: Set up cron job"
+        echo "  Run: crontab -e"
+        echo "  Add this line:"
+        echo "    0 2 * * * /usr/local/sw/bin/trash_cleanup --do-it >> /usr/local/sw/logs/trash_cleanup.log 2>&1"
+        echo ""
+    else
+        echo "[OK] Cron job already configured"
+        echo "  Current entry: $(crontab -l 2>/dev/null | grep trash_cleanup)"
+        echo ""
+    fi
     
     if [ "$NEEDS_MANUAL" = false ]; then
         echo "Everything automated successfully!"

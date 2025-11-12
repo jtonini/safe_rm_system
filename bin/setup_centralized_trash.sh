@@ -25,6 +25,7 @@ fi
 TRASH_BASE="/scratch/trashcan"
 
 SINGLE_USER=""
+VERBOSE=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
         -u|--user)
             SINGLE_USER="$2"
             shift 2
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
             ;;
         -h|--help)
             cat << EOF
@@ -42,11 +47,13 @@ Usage: setup_centralized_trash.sh [OPTIONS]
 
 Options:
   -u, --user <username>     Set up trash for specific user only (for testing)
+  -v, --verbose             Show detailed error messages for troubleshooting
   -h, --help                Show this help message
 
 Examples:
   setup_centralized_trash.sh                  # Set up for ALL users
   setup_centralized_trash.sh -u jtonini       # Set up for jtonini only (testing)
+  setup_centralized_trash.sh -u dsoule -v     # Debug dsoule setup issues
 
 EOF
             exit 0
@@ -209,19 +216,35 @@ for user_home in $user_list; do
 
             # Create as the user with correct permissions
             # SGID on parent ensures installer group is inherited
-            sudo -n -u "$username" bash -c "
-                mkdir -p '$user_trash_dir/trash'
-                chmod 770 '$user_trash_dir'
-                chmod 770 '$user_trash_dir/trash'
-                chmod g+s '$user_trash_dir'
-                chmod g+s '$user_trash_dir/trash'
-            " 2>/dev/null
+            if [ "$VERBOSE" = true ]; then
+                error_output=$(sudo -n -u "$username" bash -c "
+                    mkdir -p '$user_trash_dir/trash'
+                    chmod 770 '$user_trash_dir'
+                    chmod 770 '$user_trash_dir/trash'
+                    chmod g+s '$user_trash_dir'
+                    chmod g+s '$user_trash_dir/trash'
+                " 2>&1)
+                exit_code=$?
+            else
+                sudo -n -u "$username" bash -c "
+                    mkdir -p '$user_trash_dir/trash'
+                    chmod 770 '$user_trash_dir'
+                    chmod 770 '$user_trash_dir/trash'
+                    chmod g+s '$user_trash_dir'
+                    chmod g+s '$user_trash_dir/trash'
+                " 2>/dev/null
+                exit_code=$?
+            fi
 
-            if [ $? -eq 0 ]; then
+            if [ $exit_code -eq 0 ]; then
                 ((users_created++))
                 echo "  [OK] Created trash directory"
             else
                 echo "  [FAIL] Failed to create directory for $username"
+                if [ "$VERBOSE" = true ] && [ -n "$error_output" ]; then
+                    echo "    Error details:"
+                    echo "$error_output" | sed 's/^/      /'
+                fi
                 ((users_failed++))
                 failed_users+=("$username")
                 continue
@@ -247,12 +270,23 @@ for user_home in $user_list; do
             echo "  [WARN] .trash still exists as non-symlink after migration attempt"
         else
             # Create symlink as the user
-            sudo -n -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>/dev/null
-            if [ $? -eq 0 ]; then
+            if [ "$VERBOSE" = true ]; then
+                error_output=$(sudo -n -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>&1)
+                exit_code=$?
+            else
+                sudo -n -u "$username" ln -s "$user_trash_dir/trash" "$symlink_path" 2>/dev/null
+                exit_code=$?
+            fi
+            
+            if [ $exit_code -eq 0 ]; then
                 echo "  [OK] Created symlink for $username"
                 ((symlinks_created++))
             else
                 echo "  [FAIL] Failed to create symlink for $username"
+                if [ "$VERBOSE" = true ] && [ -n "$error_output" ]; then
+                    echo "    Error details:"
+                    echo "$error_output" | sed 's/^/      /'
+                fi
                 ((users_failed++))
                 failed_users+=("$username")
             fi
