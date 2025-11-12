@@ -16,7 +16,10 @@ cd ~/safe_rm_system
 ./deploy.sh
 ```
 
-**Note:** New users created later will be set up automatically on first use of `rm`.
+**Note:** 
+- New users created later will be set up automatically on first use of `rm`
+- Deployment continues even if rm alias setup needs manual configuration
+- The script will show exact commands if manual alias setup is needed
 
 ## Architecture
 
@@ -42,7 +45,8 @@ safe_rm_system/
 ├── bin/
 │   ├── safe_rm.sh                   # User command (replaces rm)
 │   ├── trash_cleanup.sh             # Admin cleanup tool
-│   └── setup_centralized_trash.sh   # Initial setup script
+│   ├── setup_centralized_trash.sh   # Initial setup script
+│   └── setup_alias.sh               # Alias configuration helper
 ├── docs/                            # Documentation (if needed)
 ├── deploy.sh                        # Quick deployment script
 └── README.md                        # This file
@@ -101,17 +105,96 @@ For a single user (testing):
 
 ### 4. Set Up safe_rm Alias System-Wide
 
-Alias is configured in `/usr/local/etc/usersrc/common`:
+The deploy script automatically attempts to configure the rm alias. **Deployment continues regardless of whether automatic setup succeeds.**
 
+**How it works:**
+
+The script detects your system's bash configuration file (priority order):
+1. `/usr/local/etc/usersrc/common` (OpenHPC/Custom - like spydur)
+2. `/etc/bashrc` (RHEL/CentOS/Rocky)  
+3. `/etc/bash.bashrc` (Debian/Ubuntu)
+
+It uses the **first file it finds** and checks if the alias already exists before adding it.
+
+**Automatic setup (happens during deploy.sh Step 3):**
+
+**If successful:**
+```
+[OK] Successfully added safe_rm alias to /usr/local/etc/usersrc/common
+```
+Done! Users just need to reload: `source ~/.bashrc`
+
+**If manual setup needed:**
+```
+[WARN] No write permission to /usr/local/etc/usersrc/common
+
+Manual setup required. Please run as root or with sudo:
+[shows exact commands]
+
+NOTE: Deployment will continue. You can set up the alias later.
+```
+
+**Manual setup commands (choose based on your system):**
+
+For OpenHPC/Custom (like spydur with `/usr/local/etc/usersrc/common`):
 ```bash
+sudo bash << 'EOF'
+cat >> /usr/local/etc/usersrc/common << 'ALIASEOF'
+
 # Safe rm - move files to trash instead of permanent deletion
 if [ -f /usr/local/sw/bin/safe_rm ]; then
     unalias rm 2>/dev/null
     alias rm='/usr/local/sw/bin/safe_rm'
 fi
+ALIASEOF
+EOF
 ```
 
-Users can bypass with:
+For standard RHEL/CentOS/Rocky (`/etc/bashrc`):
+```bash
+sudo bash << 'EOF'
+cat >> /etc/bashrc << 'ALIASEOF'
+
+# Safe rm - move files to trash instead of permanent deletion
+if [ -f /usr/local/sw/bin/safe_rm ]; then
+    unalias rm 2>/dev/null
+    alias rm='/usr/local/sw/bin/safe_rm'
+fi
+ALIASEOF
+EOF
+```
+
+For Debian/Ubuntu (`/etc/bash.bashrc`):
+```bash
+sudo bash << 'EOF'
+cat >> /etc/bash.bashrc << 'ALIASEOF'
+
+# Safe rm - move files to trash instead of permanent deletion
+if [ -f /usr/local/sw/bin/safe_rm ]; then
+    unalias rm 2>/dev/null
+    alias rm='/usr/local/sw/bin/safe_rm'
+fi
+ALIASEOF
+EOF
+```
+
+**Verify alias is working:**
+```bash
+# Open new terminal or reload:
+source ~/.bashrc
+
+# Check alias:
+alias rm
+# Should show: alias rm='/usr/local/sw/bin/safe_rm'
+```
+
+**Important notes:**
+- The script is idempotent (safe to run multiple times - checks for existing alias first)
+- Deployment continues even if alias setup needs manual intervention
+- Only ONE config file is used (not all of them)
+
+**Bypassing safe_rm:**
+Users can still use real rm when needed:
 - `command rm file.txt` - use real rm
 - `/bin/rm file.txt` - use real rm directly
 
@@ -321,6 +404,25 @@ Overall statistics for the cleanup run:
 ```
 
 ## Troubleshooting
+
+### rm alias not working
+
+Check if alias exists:
+```bash
+alias rm
+```
+
+If not set, the automatic setup may have needed manual configuration. Run:
+```bash
+./bin/setup_alias.sh
+```
+
+This will either add the alias or show you the exact commands to run as root.
+
+After setting up, reload your shell:
+```bash
+source ~/.bashrc
+```
 
 ### Users can't create trash directory
 

@@ -112,6 +112,17 @@ else
 fi
 
 echo ""
+echo "Step 3: Setting up rm alias..."
+
+# Run alias setup script
+if [ -f "$REPO_DIR/bin/setup_alias.sh" ]; then
+    "$REPO_DIR/bin/setup_alias.sh"
+else
+    echo "  [WARN] setup_alias.sh not found, skipping alias setup"
+    echo "  You may need to manually configure the rm alias"
+fi
+
+echo ""
 echo "=========================================="
 echo "  DEPLOYMENT COMPLETE"
 echo "=========================================="
@@ -152,14 +163,14 @@ if [ -n "$SINGLE_USER" ]; then
     echo "     ./deploy.sh"
 else
     echo "Next manual steps:"
-    echo "  1. Alias already set in /usr/local/etc/usersrc/common:"
-    echo "     alias rm='/usr/local/sw/bin/safe_rm'"
+    echo "  1. Verify rm alias is configured:"
+    echo "     Open new terminal and run: alias rm"
+    echo "     Should show: alias rm='/usr/local/sw/bin/safe_rm'"
     echo ""
-    echo "  2. Add cron job (crontab -e):"
+    echo "  2. If alias not configured, the setup_alias.sh script showed instructions above"
+    echo ""
+    echo "  3. Add cron job (crontab -e):"
     echo "     0 2 * * * /usr/local/sw/bin/trash_cleanup --do-it >> /usr/local/sw/logs/trash_cleanup.log 2>&1"
-    echo ""
-    echo "  3. Have users reload their shell:"
-    echo "     source ~/.bashrc"
     echo ""
     echo "Test it:"
     echo "  trash_cleanup              # Show statistics (will show mode)"
