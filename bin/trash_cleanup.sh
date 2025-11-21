@@ -3,9 +3,22 @@
 # Supports both centralized (/scratch/trashcan) and local (~/.trash) modes
 
 # Detect trash mode
-if [ -d "/scratch" ] && [ -d "/scratch/trashcan" ]; then
+if [ -d "/scratch/trashcan" ]; then
     MODE="centralized"
     TRASH_BASE="/scratch/trashcan"
+elif [ -d "/scratch" ]; then
+    # /scratch exists but /scratch/trashcan doesn't - try to create it
+    if mkdir -p /scratch/trashcan 2>/dev/null; then
+        # Successfully created - set proper permissions
+        chmod 2777 /scratch/trashcan 2>/dev/null
+        chgrp installer /scratch/trashcan 2>/dev/null || true
+        MODE="centralized"
+        TRASH_BASE="/scratch/trashcan"
+    else
+        # Cannot create - use local mode
+        MODE="local"
+        TRASH_BASE="/home"
+    fi
 else
     MODE="local"
     TRASH_BASE="/home"

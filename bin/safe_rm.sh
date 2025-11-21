@@ -3,20 +3,32 @@
 # Supports both centralized (/scratch/trashcan) and local (~/.trash) modes
 
 # Detect trash mode: centralized or local
-if [ -d "/scratch" ]; then
-    # /scratch exists - must use centralized mode
-    if [ ! -d "/scratch/trashcan" ]; then
-        echo "Error: /scratch exists but /scratch/trashcan is not configured" >&2
-        echo "Contact your system administrator to set up centralized trash" >&2
-        exit 1
-    fi
-    # Centralized mode
+if [ -d "/scratch/trashcan" ]; then
+    # /scratch/trashcan exists - use centralized mode
     MODE="centralized"
     TRASH_BASE="/scratch/trashcan"
     TRASH_DIR="$TRASH_BASE/$USER/trash"
     SYMLINK_PATH="$HOME/.trash"
+elif [ -d "/scratch" ]; then
+    # /scratch exists but /scratch/trashcan doesn't - try to create it
+    if mkdir -p /scratch/trashcan 2>/dev/null; then
+        # Successfully created - set proper permissions
+        chmod 2777 /scratch/trashcan 2>/dev/null
+        chgrp installer /scratch/trashcan 2>/dev/null || true
+        
+        # Now use centralized mode
+        MODE="centralized"
+        TRASH_BASE="/scratch/trashcan"
+        TRASH_DIR="$TRASH_BASE/$USER/trash"
+        SYMLINK_PATH="$HOME/.trash"
+    else
+        # Cannot create /scratch/trashcan - fall back to local mode
+        MODE="local"
+        TRASH_DIR="$HOME/.trash"
+        SYMLINK_PATH=""  # Not used in local mode
+    fi
 else
-    # No /scratch - use local mode
+    # /scratch doesn't exist - use local mode
     MODE="local"
     TRASH_DIR="$HOME/.trash"
     SYMLINK_PATH=""  # Not used in local mode
