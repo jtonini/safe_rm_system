@@ -11,33 +11,53 @@ if [ -d "/scratch/trashcan" ]; then
     SYMLINK_PATH="$HOME/.trash"
 elif [ -d "/scratch" ]; then
     # /scratch exists but /scratch/trashcan doesn't - try to create it
-    if mkdir -p /scratch/trashcan 2>/dev/null; then
-        # Successfully created - set proper permissions
-        chmod 2777 /scratch/trashcan 2>/dev/null
-        chgrp installer /scratch/trashcan 2>/dev/null || true
-        
-        # Now use centralized mode
-        MODE="centralized"
-        TRASH_BASE="/scratch/trashcan"
-        TRASH_DIR="$TRASH_BASE/$USER/trash"
-        SYMLINK_PATH="$HOME/.trash"
+    # Check if we're in the installer group (needed for proper group assignment)
+    if groups | grep -qw installer; then
+        if mkdir -p /scratch/trashcan 2>/dev/null; then
+            # Successfully created - set proper permissions and group
+            chmod 2777 /scratch/trashcan 2>/dev/null
+            chgrp installer /scratch/trashcan 2>/dev/null
+            
+            # Verify group was set correctly (SGID requires correct group)
+            if [ "$(stat -c %G /scratch/trashcan 2>/dev/null)" = "installer" ]; then
+                # Success - use centralized mode
+                MODE="centralized"
+                TRASH_BASE="/scratch/trashcan"
+                TRASH_DIR="$TRASH_BASE/$USER/trash"
+                SYMLINK_PATH="$HOME/.trash"
+            else
+                # Group not set correctly - remove and fall back to local
+                rmdir /scratch/trashcan 2>/dev/null
+                MODE="local"
+                TRASH_DIR="$HOME/.trash"
+                SYMLINK_PATH=""
+            fi
+        else
+            # Cannot create - fall back to local mode
+            MODE="local"
+            TRASH_DIR="$HOME/.trash"
+            SYMLINK_PATH=""
+        fi
     else
-        # Cannot create /scratch/trashcan - fall back to local mode
+        # User not in installer group - cannot set up centralized properly
+        # Fall back to local mode
         MODE="local"
         TRASH_DIR="$HOME/.trash"
-        SYMLINK_PATH=""  # Not used in local mode
+        SYMLINK_PATH=""
     fi
 else
     # /scratch doesn't exist - use local mode
     MODE="local"
     TRASH_DIR="$HOME/.trash"
-    SYMLINK_PATH=""  # Not used in local mode
+    SYMLINK_PATH=""
 fi
 
 # Setup trash directory based on mode
 if [ "$MODE" = "centralized" ]; then
     # Centralized mode: ensure trash directory exists with correct permissions
     if [ ! -d "$TRASH_DIR" ]; then
+        # Create user's trash directory
+        # Parent's SGID ensures it inherits the installer group automatically
         mkdir -p "$TRASH_DIR" 2>/dev/null
         chmod 770 "$TRASH_DIR" 2>/dev/null
         chmod g+s "$TRASH_DIR" 2>/dev/null
